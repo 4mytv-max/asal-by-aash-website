@@ -151,20 +151,24 @@
   <div class="admin-panel" id="admin-panel" hidden>
     <div class="admin-panel-header">
       <h3>Owner Mode</h3>
-      <button id="admin-exit" class="btn btn-ghost">Exit</button>
-    </div>
-    <div class="admin-tabs">
-      <button data-tab="content" class="active">Site Text</button>
-      <button data-tab="catalog">Catalog</button>
-    </div>
-    <div class="admin-tab-content" id="admin-tab-content">
-      <div data-pane="content">
-        <p class="admin-hint">Click any text on the page to edit it. Changes save automatically.</p>
-        <button id="admin-save-content" class="btn btn-primary">Save All Text</button>
+      <div class="admin-panel-actions">
+        <button id="admin-add-row-top" class="btn btn-ghost btn-light">+ Add Fabric Row</button>
+        <button id="admin-exit" class="btn btn-ghost btn-light">Exit</button>
       </div>
-      <div data-pane="catalog" hidden>
-        <button id="admin-add-row" class="btn btn-primary">+ Add Fabric Row</button>
-        <div id="admin-catalog-list"></div>
+    </div>
+    <div class="admin-panel-body">
+      <p class="admin-hint">Click any text on the page to edit it. Click <strong>✏️ Edit</strong> on a collection to manage its photos. <button id="admin-save-content" class="btn btn-primary btn-small">Save All Text</button></p>
+    </div>
+  </div>
+
+  <!-- Row edit modal (visual owner mode) -->
+  <div class="admin-modal row-edit-modal" id="row-edit-modal" hidden>
+    <div class="admin-modal-box row-edit-box">
+      <h3 id="row-edit-title">Edit Fabric Row</h3>
+      <div id="row-edit-form"></div>
+      <div class="admin-modal-actions">
+        <button id="row-edit-save" class="btn btn-primary">Save Row</button>
+        <button id="row-edit-cancel" class="btn btn-ghost">Cancel</button>
       </div>
     </div>
   </div>

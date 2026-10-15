@@ -142,19 +142,38 @@
     rows.forEach(function (row, idx) {
       var countLabel = 'Collection ' + String(idx + 1).padStart(labelWidth, '0') + ' / ' + String(total).padStart(labelWidth, '0');
       var fabricSlug = slugify(row.fabric_name);
-      html += '<article class="collection" id="' + esc(fabricSlug) + '">' +
+      var isOwner = state.isOwner;
+      html += '<article class="collection' + (isOwner ? ' owner-collection' : '') + '" id="' + esc(fabricSlug) + '" data-row-id="' + row.id + '">' +
         '<header class="collection-head"><div><span class="collection-count">' + esc(countLabel) + '</span>' +
-        '<h3>' + esc(row.fabric_name) + '</h3></div>' +
-        '<p class="collection-note">1 fabric · 4 models</p></header>' +
+        '<h3>' + esc(row.fabric_name) + '</h3>' +
+        (isOwner ? '<p class="collection-sub">Fabric in stock · style ideas shown</p>' : '') +
+        '</div>';
+      if (isOwner) {
+        html += '<div class="collection-owner-actions">' +
+          '<button type="button" class="owner-edit-btn" data-edit-row="' + row.id + '">' +
+          '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17l-1 3Z"/><path d="m13.5 6.5 3 3"/></svg> Edit</button>' +
+          '<button type="button" class="owner-delete-btn" data-delete-row="' + row.id + '">' +
+          '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 4h6M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg> Delete row</button>' +
+          '</div>';
+      } else {
+        html += '<p class="collection-note">1 fabric · 4 models</p>';
+      }
+      html += '</header>' +
         '<div class="products">';
 
-      // Fabric card
-      html += '<a class="product product-fabric order-link" href="' + esc(waOrderUrl(row.fabric_name, 'Fabric enquiry')) + '"' +
-        ' data-fabric="' + esc(row.fabric_name) + '" data-model="Fabric enquiry" target="_blank" rel="noreferrer">' +
+      // Fabric card (owner: div, no WhatsApp link)
+      var fabricCardOpen = isOwner
+        ? '<div class="product product-fabric" data-fabric="' + esc(row.fabric_name) + '">'
+        : '<a class="product product-fabric order-link" href="' + esc(waOrderUrl(row.fabric_name, 'Fabric enquiry')) + '"' +
+          ' data-fabric="' + esc(row.fabric_name) + '" data-model="Fabric enquiry" target="_blank" rel="noreferrer">';
+      var fabricCardClose = isOwner ? '</div>' : '</a>';
+      var fabricCta = isOwner
+        ? '<span class="manage-label">Manage in Edit</span>'
+        : '<span>' + esc(c.fabric_order_button || 'Ask about this fabric') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>';
+      html += fabricCardOpen +
         '<div class="product-photo"><img src="' + esc(row.fabric_image_url) + '" alt="' + esc(row.fabric_name) + ' fabric" loading="lazy" />' +
         '<span class="fabric-label" data-content="fabric_badge">' + esc(c.fabric_badge || 'FABRIC IN STOCK') + '</span></div>' +
-        '<div class="product-copy"><strong>' + esc(row.fabric_name) + '</strong>' +
-        '<span>' + esc(c.fabric_order_button || 'Ask about this fabric') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span></div></a>';
+        '<div class="product-copy"><strong>' + esc(row.fabric_name) + '</strong>' + fabricCta + '</div>' + fabricCardClose;
 
       // Model cards
       row.model_names.forEach(function (mname, mi) {
@@ -162,20 +181,31 @@
         var price = row.model_prices[mi];
         if (!mname) return;
         var num = String(mi + 1).padStart(2, '0');
-        html += '<a class="product order-link" href="' + esc(waOrderUrl(row.fabric_name, mname)) + '"' +
-          ' data-fabric="' + esc(row.fabric_name) + '" data-model="' + esc(mname) + '" target="_blank" rel="noreferrer">' +
-          '<div class="product-photo">' +
-          (mimg ? '<img src="' + esc(mimg) + '" alt="' + esc(mname) + ' in ' + esc(row.fabric_name) + '" loading="lazy" />' : '') +
-          '<span class="product-number">' + num + '</span></div>' +
-          '<div class="product-copy"><strong>' + esc(mname) + '</strong>' +
-          (price ? '<span class="price">₹' + esc(price) + '</span>' : '') +
-          '<span>' + esc(c.order_button || 'Order on WhatsApp') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span></div></a>';
+        var modelCta = isOwner
+          ? '<span class="manage-label">Manage in Edit</span>'
+          : (price ? '<span class="price">₹' + esc(price) + '</span>' : '') +
+            '<span>' + esc(c.order_button || 'Order on WhatsApp') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>';
+        if (isOwner) {
+          html += '<div class="product" data-fabric="' + esc(row.fabric_name) + '" data-model="' + esc(mname) + '">' +
+            '<div class="product-photo">' +
+            (mimg ? '<img src="' + esc(mimg) + '" alt="' + esc(mname) + ' in ' + esc(row.fabric_name) + '" loading="lazy" />' : '') +
+            '<span class="product-number">' + num + '</span></div>' +
+            '<div class="product-copy"><strong>' + esc(mname) + '</strong>' + modelCta + '</div></div>';
+        } else {
+          html += '<a class="product order-link" href="' + esc(waOrderUrl(row.fabric_name, mname)) + '"' +
+            ' data-fabric="' + esc(row.fabric_name) + '" data-model="' + esc(mname) + '" target="_blank" rel="noreferrer">' +
+            '<div class="product-photo">' +
+            (mimg ? '<img src="' + esc(mimg) + '" alt="' + esc(mname) + ' in ' + esc(row.fabric_name) + '" loading="lazy" />' : '') +
+            '<span class="product-number">' + num + '</span></div>' +
+            '<div class="product-copy"><strong>' + esc(mname) + '</strong>' + modelCta + '</div></a>';
+        }
       });
 
       html += '</div></article>';
     });
     list.innerHTML = html;
     bindPhotoZoom();
+    if (state.isOwner) bindOwnerCatalogActions();
   }
 
   // ---------- Lightbox with pinch zoom ----------
@@ -221,7 +251,8 @@
       lightboxImage.src = '';
     }
 
-    // Photo tap opens zoom only (never WhatsApp)
+    // Photo tap opens zoom only (never WhatsApp) — disabled in owner mode
+    if (state.isOwner) return;
     document.querySelectorAll('.product-photo img').forEach(function (img) {
       img.style.cursor = 'zoom-in';
       img.addEventListener('click', function (e) {
@@ -357,20 +388,19 @@
     });
     document.getElementById('admin-exit').addEventListener('click', exitOwnerMode);
 
-    // Tabs
-    document.querySelectorAll('.admin-tabs button').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.querySelectorAll('.admin-tabs button').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        var tab = btn.dataset.tab;
-        document.querySelectorAll('.admin-tab-content [data-pane]').forEach(function (p) {
-          p.hidden = p.dataset.pane !== tab;
-        });
-      });
-    });
-
     document.getElementById('admin-save-content').addEventListener('click', saveAllContent);
-    document.getElementById('admin-add-row').addEventListener('click', addRowUI);
+    var addTop = document.getElementById('admin-add-row-top');
+    if (addTop) addTop.addEventListener('click', addRowUI);
+
+    // Row edit modal
+    document.getElementById('row-edit-save').addEventListener('click', saveRowFromModal);
+    document.getElementById('row-edit-cancel').addEventListener('click', closeRowEditModal);
+    document.getElementById('row-edit-modal').addEventListener('click', function (e) {
+      if (e.target === this) closeRowEditModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !document.getElementById('row-edit-modal').hidden) closeRowEditModal();
+    });
 
     if (isOwnerRequested()) {
       if (state.adminToken) enterOwnerMode();
@@ -407,20 +437,137 @@
     document.body.classList.add('owner-mode');
     document.getElementById('admin-panel').hidden = false;
     makeEditable();
-    renderAdminCatalog();
+    renderCatalog(); // re-render with owner overlays
+    applyContent();
   }
 
   function exitOwnerMode() {
     state.isOwner = false;
     document.body.classList.remove('owner-mode');
     document.getElementById('admin-panel').hidden = true;
+    document.getElementById('row-edit-modal').hidden = true;
     document.querySelectorAll('[data-content],[data-content-html]').forEach(function (el) {
       el.contentEditable = 'false';
     });
+    renderCatalog(); // re-render as customer view
+    applyContent();
     // Clean URL
     var url = new URL(window.location.href);
     url.searchParams.delete('owner');
     window.history.replaceState({}, '', url.toString());
+  }
+
+  // ---------- Visual owner catalog actions ----------
+  function bindOwnerCatalogActions() {
+    document.querySelectorAll('[data-edit-row]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openRowEditModal(Number(btn.getAttribute('data-edit-row')));
+      });
+    });
+    document.querySelectorAll('[data-delete-row]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = Number(btn.getAttribute('data-delete-row'));
+        var row = state.catalog.find(function (r) { return r.id === id; });
+        var name = row ? row.fabric_name : 'this fabric row';
+        if (!confirm('Delete "' + name + '" entirely? This cannot be undone.')) return;
+        fetch('/api/admin/catalog/' + id, {
+          method: 'DELETE',
+          headers: { 'X-Admin-Token': state.adminToken },
+        }).then(function () { return loadCatalog(); })
+        .then(function () { renderCatalog(); applyContent(); })
+        .catch(function () { alert('Delete failed'); });
+      });
+    });
+  }
+
+  // ---------- Row edit modal (single-row form) ----------
+  var editingRowId = null;
+
+  function rowFormHTML(row) {
+    var html = '<div class="admin-row-card">' +
+      '<label>Fabric name</label><input type="text" data-f="fabric_name" value="' + esc(row.fabric_name) + '" />' +
+      '<label>Fabric photo</label><div class="admin-img-slot"><img src="' + esc(row.fabric_image_url) + '" />' +
+      '<input type="file" accept="image/*" data-upload="fabric" /></div>';
+    row.model_names.forEach(function (mn, i) {
+      html += '<label>Model ' + (i + 1) + ' name</label>' +
+        '<input type="text" data-f="model_name_' + i + '" value="' + esc(mn || '') + '" />' +
+        '<label>Model ' + (i + 1) + ' price (optional)</label>' +
+        '<input type="text" data-f="model_price_' + i + '" value="' + esc(row.model_prices[i] || '') + '" placeholder="Leave blank to hide" />' +
+        '<div class="admin-img-slot"><img src="' + esc(row.model_image_urls[i] || '') + '" />' +
+        '<input type="file" accept="image/*" data-upload="model_' + i + '" /></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function openRowEditModal(id) {
+    var row = state.catalog.find(function (r) { return r.id === id; });
+    if (!row) return;
+    editingRowId = id;
+    document.getElementById('row-edit-title').textContent = 'Edit: ' + row.fabric_name;
+    var form = document.getElementById('row-edit-form');
+    form.innerHTML = rowFormHTML(row);
+    // Bind uploads inside modal
+    form.querySelectorAll('input[type="file"][data-upload]').forEach(function (input) {
+      input.addEventListener('change', function () {
+        var file = input.files[0];
+        if (!file) return;
+        var fd = new FormData();
+        fd.append('image', file);
+        fetch('/api/admin/upload', {
+          method: 'POST',
+          headers: { 'X-Admin-Token': state.adminToken },
+          body: fd,
+        }).then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.url) {
+            input.closest('.admin-img-slot').querySelector('img').src = d.url;
+            input.closest('.admin-img-slot').dataset.newUrl = d.url;
+          }
+        }).catch(function () { alert('Upload failed'); });
+      });
+    });
+    document.getElementById('row-edit-modal').hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeRowEditModal() {
+    document.getElementById('row-edit-modal').hidden = true;
+    document.body.style.overflow = '';
+    editingRowId = null;
+  }
+
+  function saveRowFromModal() {
+    if (editingRowId == null) return;
+    var form = document.getElementById('row-edit-form');
+    var body = {
+      fabric_name: form.querySelector('[data-f="fabric_name"]').value,
+      model_names: [], model_image_urls: [], model_prices: [],
+    };
+    var fabricSlot = form.querySelector('[data-upload="fabric"]').closest('.admin-img-slot');
+    if (fabricSlot.dataset.newUrl) body.fabric_image_url = fabricSlot.dataset.newUrl;
+
+    for (var i = 0; i < 4; i++) {
+      body.model_names.push(form.querySelector('[data-f="model_name_' + i + '"]').value);
+      body.model_prices.push(form.querySelector('[data-f="model_price_' + i + '"]').value);
+      var slot = form.querySelector('[data-upload="model_' + i + '"]').closest('.admin-img-slot');
+      body.model_image_urls.push(slot.dataset.newUrl || null);
+    }
+    var existing = state.catalog.find(function (r) { return r.id === editingRowId; });
+    if (existing) {
+      if (!body.fabric_image_url) body.fabric_image_url = existing.fabric_image_url;
+      for (var j = 0; j < 4; j++) {
+        if (!body.model_image_urls[j]) body.model_image_urls[j] = existing.model_image_urls[j];
+      }
+    }
+    fetch('/api/admin/catalog/' + editingRowId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': state.adminToken },
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json(); })
+    .then(function () { return loadCatalog(); })
+    .then(function () { renderCatalog(); applyContent(); closeRowEditModal(); })
+    .catch(function () { alert('Save failed'); });
   }
 
   function makeEditable() {
@@ -567,7 +714,7 @@
       body: JSON.stringify({ fabric_name: name }),
     }).then(function (r) { return r.json(); })
     .then(function () { return loadCatalog(); })
-    .then(function () { renderAdminCatalog(); })
+    .then(function () { renderCatalog(); applyContent(); })
     .catch(function () { alert('Add failed'); });
   }
 

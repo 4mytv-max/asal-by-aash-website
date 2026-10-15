@@ -126,6 +126,108 @@
 .admin-row-actions { display: flex; gap: 8px; margin-top: 12px; }
 .admin-row-actions .btn { font-size: 12px; min-height: 38px; padding: 0 12px; }
 
+/* Visual owner mode — edit overlays on main catalog */
+.collection-owner-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  white-space: nowrap;
+}
+.owner-edit-btn, .owner-delete-btn {
+  background: none;
+  border: none;
+  color: var(--plum);
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 4px;
+}
+.owner-edit-btn .icon, .owner-delete-btn .icon {
+  width: 15px;
+  height: 15px;
+}
+.owner-edit-btn:hover, .owner-delete-btn:hover {
+  text-decoration: underline;
+}
+.collection-sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.manage-label {
+  color: var(--plum);
+  font-size: 13px;
+  font-weight: 700;
+}
+/* In owner mode, product cards are not links */
+body.owner-mode .product {
+  cursor: default;
+  text-decoration: none;
+}
+body.owner-mode .product-photo img {
+  cursor: default;
+}
+/* Row edit modal */
+.row-edit-modal .admin-modal-box {
+  max-width: 560px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.row-edit-box .admin-row-card {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+/* Slim top admin bar */
+.admin-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: auto;
+  width: 100%;
+  z-index: 150;
+  background: var(--plum-dark);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  display: block;
+  overflow: visible;
+}
+.admin-panel[hidden] { display: none; }
+.admin-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: none;
+  background: var(--plum-dark);
+  color: #fff;
+}
+.admin-panel-header h3 { margin: 0; color: #fff; font-family: var(--serif); font-size: 19px; }
+.admin-panel-actions { display: flex; gap: 8px; }
+.btn-light {
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.4);
+  background: transparent;
+  font-size: 13px;
+  padding: 8px 12px;
+  min-height: 0;
+}
+.btn-light:hover { background: rgba(255,255,255,0.12); }
+.admin-panel-body {
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.admin-panel-body .admin-hint { margin: 0; }
+.btn-small { font-size: 13px; padding: 6px 12px; min-height: 0; }
+/* Push page content below fixed admin bar */
+body.owner-mode { padding-top: 104px; }
+
 /* Inline editing in owner mode */
 body.owner-mode [data-content] {
   outline: 2px dashed rgba(201, 154, 77, 0.5);
