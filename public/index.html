@@ -95,6 +95,8 @@
       </dl>
     </section>
 
+    <!-- RATINGS TEMPORARILY HIDDEN - restore by removing these comments
+<!-- REVIEWS TEMPORARILY HIDDEN (restore by removing comments)
     <section class="rating" aria-labelledby="rating-title">
       <p class="eyebrow" data-content="rating_eyebrow">Your experience</p>
       <h2 id="rating-title" data-content="rating_title">Rate our website</h2>
@@ -107,7 +109,9 @@
         <button type="button" data-stars="5" aria-label="5 stars">★</button>
       </div>
       <p class="rating-result" id="rating-result"></p>
+      <!-- ratings hidden -->
     </section>
+-->
   </main>
 
   <div class="cta-marquee" role="region" aria-label="Call to action">
@@ -158,6 +162,15 @@
     </div>
     <div class="admin-panel-body">
       <p class="admin-hint">Click any text on the page to edit it. Click <strong>✏️ Edit</strong> on a collection to manage its photos. <button id="admin-save-content" class="btn btn-primary btn-small">Save All Text</button></p>
+      <div class="admin-stats" id="admin-stats">
+        <h4>📊 Visitor Stats</h4>
+        <div class="stats-cards">
+          <div class="stat-card"><span class="stat-num" id="stat-total">–</span><span class="stat-label">Total visits</span></div>
+          <div class="stat-card"><span class="stat-num" id="stat-today">–</span><span class="stat-label">Today</span></div>
+          <div class="stat-card"><span class="stat-num" id="stat-unique">–</span><span class="stat-label">Unique visitors</span></div>
+        </div>
+        <div class="stats-chart" id="stats-chart"><p class="stats-loading">Loading…</p></div>
+      </div>
     </div>
   </div>
 
