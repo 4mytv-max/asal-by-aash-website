@@ -374,12 +374,18 @@
 
   function initOwner() {
     var link = document.getElementById('owner-link');
+    if (!link) return;
     link.addEventListener('click', function (e) {
-      e.preventDefault();
-      if (state.adminToken) { enterOwnerMode(); return; }
-      document.getElementById('admin-login-modal').hidden = false;
-      document.getElementById('admin-password').focus();
+      if (state.adminToken) { e.preventDefault(); enterOwnerMode(); return; }
+      var modal = document.getElementById('admin-login-modal');
+      var pwd = document.getElementById('admin-password');
+      if (modal && pwd) { e.preventDefault(); modal.hidden = false; pwd.focus(); }
     });
+    if (isOwnerRequested() && !state.adminToken) {
+      var m2 = document.getElementById('admin-login-modal');
+      var p2 = document.getElementById('admin-password');
+      if (m2 && p2) { m2.hidden = false; setTimeout(function(){ p2.focus(); }, 300); }
+    }
     document.getElementById('admin-login-cancel').addEventListener('click', function () {
       document.getElementById('admin-login-modal').hidden = true;
     });
