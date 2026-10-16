@@ -46,6 +46,14 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip_hash TEXT,
+    user_agent TEXT,
+    visited_at INTEGER NOT NULL,
+    path TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_visits_at ON visits (visited_at);
 `);
 
 // --- Seed data ---
@@ -162,7 +170,24 @@ function seedIfEmpty() {
 seedIfEmpty();
 
 // --- Middleware ---
+app.set('trust proxy', 1); // Render sits behind a proxy — req.ip gives the real client IP
 app.use(express.json({ limit: '2mb' }));
+
+// Visitor analytics: log page views of the homepage only (no API, no static assets).
+// Privacy: stores only a SHA256 hash (first 16 chars) of the IP, never the raw IP. No cookies.
+const logVisit = db.prepare('INSERT INTO visits (ip_hash, user_agent, visited_at, path) VALUES (?, ?, ?, ?)');
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.path === '/') {
+    try {
+      const ip = req.ip || '';
+      const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+      const ua = (req.get('user-agent') || '').slice(0, 256);
+      logVisit.run(ipHash, ua, Date.now(), req.path);
+    } catch (e) { /* analytics must never break the page */ }
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 
 // Uploads
@@ -251,6 +276,30 @@ app.post('/api/admin/login', (req, res) => {
   } else {
     res.status(401).json({ error: 'Wrong password' });
   }
+});
+
+// Visitor stats (IST day boundaries — the business is India-based)
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+app.get('/api/admin/stats', requireAdmin, (req, res) => {
+  const now = Date.now();
+  const istMidnightUtc = Math.floor((now + IST_OFFSET_MS) / 86400000) * 86400000 - IST_OFFSET_MS;
+  const thirtyDaysAgo = now - 30 * 86400000;
+
+  const total = db.prepare('SELECT COUNT(*) AS c FROM visits').get().c;
+  const today = db.prepare('SELECT COUNT(*) AS c FROM visits WHERE visited_at >= ?').get(istMidnightUtc).c;
+  const unique = db.prepare('SELECT COUNT(DISTINCT ip_hash) AS c FROM visits').get().c;
+  const byDay = db.prepare(`
+    SELECT date(visited_at / 1000, 'unixepoch', '+330 minutes') AS date, COUNT(*) AS count
+    FROM visits WHERE visited_at >= ?
+    GROUP BY date ORDER BY date ASC
+  `).all(thirtyDaysAgo);
+
+  res.json({
+    total_visits: total,
+    today_visits: today,
+    unique_visitors: unique,
+    visits_by_day: byDay,
+  });
 });
 
 app.get('/api/admin/catalog', requireAdmin, (req, res) => {
