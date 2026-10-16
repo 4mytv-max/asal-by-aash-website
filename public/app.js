@@ -315,6 +315,7 @@
   // ---------- Rating ----------
   function initRating() {
     var starsEl = document.getElementById('stars');
+    if (!starsEl) return; // Ratings temporarily hidden
     var resultEl = document.getElementById('rating-result');
     var buttons = starsEl.querySelectorAll('button');
     var rated = localStorage.getItem('asal_rated');
@@ -439,6 +440,7 @@
     makeEditable();
     renderCatalog(); // re-render with owner overlays
     applyContent();
+    loadStats();
   }
 
   function exitOwnerMode() {
@@ -455,6 +457,44 @@
     var url = new URL(window.location.href);
     url.searchParams.delete('owner');
     window.history.replaceState({}, '', url.toString());
+  }
+
+  // ---------- Visitor stats ----------
+  function loadStats() {
+    var chart = document.getElementById('stats-chart');
+    fetch('/api/admin/stats', { headers: { 'X-Admin-Token': state.adminToken } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        document.getElementById('stat-total').textContent = d.total_visits;
+        document.getElementById('stat-today').textContent = d.today_visits;
+        document.getElementById('stat-unique').textContent = d.unique_visitors;
+        renderStatsChart(d.visits_by_day || []);
+      })
+      .catch(function () {
+        chart.innerHTML = '<p class="stats-loading">Could not load stats.</p>';
+      });
+  }
+
+  function renderStatsChart(byDay) {
+    var chart = document.getElementById('stats-chart');
+    var last7 = byDay.slice(-7);
+    if (!last7.length) {
+      chart.innerHTML = '<p class="stats-loading">No visits yet.</p>';
+      return;
+    }
+    var max = 1;
+    last7.forEach(function (d) { if (d.count > max) max = d.count; });
+    var html = '<div class="stats-bars">';
+    last7.forEach(function (d) {
+      var h = Math.max(6, Math.round((d.count / max) * 90));
+      var label = d.date.slice(5); // MM-DD
+      html += '<div class="stat-bar-col" title="' + d.date + ': ' + d.count + ' visits">' +
+        '<span class="stat-bar-val">' + d.count + '</span>' +
+        '<div class="stat-bar" style="height:' + h + 'px"></div>' +
+        '<span class="stat-bar-label">' + label + '</span></div>';
+    });
+    html += '</div>';
+    chart.innerHTML = html;
   }
 
   // ---------- Visual owner catalog actions ----------
