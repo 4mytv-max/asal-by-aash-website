@@ -134,7 +134,8 @@
         setStatus(publishStatus, 'Photo uploaded. You can suggest a name with AI.', 'ok');
       })
       .catch(function (err) {
-        if (err.message !== 'auth') setStatus(publishStatus, 'Photo upload failed: ' + err.message, 'err');
+        if (err.message === 'auth') setStatus(publishStatus, 'Session expired. Please login again, then re-select the photo.', 'err');
+        else setStatus(publishStatus, 'Photo upload failed: ' + err.message, 'err');
       });
   });
 
