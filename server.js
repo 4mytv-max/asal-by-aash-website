@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'asal2026';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 // --- Database ---
 const dbPath = path.join(__dirname, 'asal.db');
@@ -369,8 +370,79 @@ app.post('/api/admin/upload', requireAdmin, upload.single('image'), (req, res) =
   res.json({ url: '/images/uploads/' + req.file.filename });
 });
 
+// AI fabric-name suggestion (Google Gemini). Never logs or exposes the API key.
+app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
+  try {
+    if (!GEMINI_API_KEY) {
+      return res.status(503).json({ error: 'AI name suggestion is not set up yet. Add GEMINI_API_KEY in Render → Environment.' });
+    }
+    const { image_url } = req.body || {};
+    if (!image_url || typeof image_url !== 'string' || !image_url.startsWith('/images/uploads/')) {
+      return res.status(400).json({ error: 'Upload a fabric photo first.' });
+    }
+    // Resolve inside the uploads dir only (path-traversal guard)
+    const resolved = path.resolve(path.join(__dirname, 'public', image_url));
+    const uploadsRoot = path.resolve(uploadDir);
+    if (!resolved.startsWith(uploadsRoot + path.sep)) {
+      return res.status(400).json({ error: 'Invalid image path.' });
+    }
+    let buf;
+    try {
+      buf = fs.readFileSync(resolved);
+    } catch (e) {
+      return res.status(404).json({ error: 'Image file not found. Please upload again.' });
+    }
+    if (buf.length > 6 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Image is too large for AI analysis.' });
+    }
+    const ext = path.extname(resolved).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    const prompt = "This is a fabric print photo for a women's clothing brand. Suggest a short, elegant fabric name in the format '[Color] [Color] [Pattern] Print' (e.g., 'Magenta Golden Floral Print'). Return ONLY the name, nothing else.";
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45000);
+    let apiRes;
+    try {
+      apiRes = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: buf.toString('base64') } }] }],
+            generationConfig: { maxOutputTokens: 40, temperature: 0.4 },
+          }),
+          signal: controller.signal,
+        }
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!apiRes.ok) {
+      console.error('Gemini API error, status:', apiRes.status);
+      return res.status(502).json({ error: 'AI service error. Please try again in a moment.' });
+    }
+    const data = await apiRes.json();
+    let text = '';
+    try {
+      text = (data.candidates[0].content.parts || []).map(p => p.text || '').join('').trim();
+    } catch (e) { text = ''; }
+    if (!text) return res.status(502).json({ error: 'AI returned no name. Please try again.' });
+    const name = text.split('\n')[0].trim().replace(/^["'“”]+|["'“”]+$/g, '').slice(0, 80);
+    res.json({ name });
+  } catch (e) {
+    console.error('suggest-name failed:', e && e.message ? e.message : e);
+    res.status(500).json({ error: 'Could not suggest a name. Please try again.' });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// Stock management page (owner-only; the page itself gates on the admin token)
+app.get('/stock', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'stock.html'));
+});
 
 // SPA fallback
 app.get('*', (req, res) => {
