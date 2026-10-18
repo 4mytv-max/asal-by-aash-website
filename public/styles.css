@@ -694,16 +694,16 @@
       .hero-logo-ring, .hero-logo-text, .hero-logo-wrap::after { animation: none; }
     }
 
-/* ESTD 2025 below hero logo - centered, tight gap, all screens */
+/* ESTD 2025 below hero logo - golden, logo font size, touching circle */
 .hero-copy .hero-estd {
   display: block;
   width: 100%;
   text-align: center;
-  font-size: 11px;
-  letter-spacing: 4px;
-  color: #e8a0b4;
-  font-weight: 600;
-  margin: 6px 0 18px;
+  font-size: 8px;
+  letter-spacing: 3px;
+  color: #d4af37;
+  font-weight: 500;
+  margin: 2px 0 16px;
   padding: 0;
   text-transform: uppercase;
 }
