@@ -235,6 +235,8 @@
       zoomState.scale = ns; zoomState.x = np.x; zoomState.y = np.y;
       lightboxImage.style.transform = 'translate3d(' + np.x + 'px,' + np.y + 'px,0) scale(' + ns + ')';
     }
+    var lightboxPushed = false;
+    var lightboxClosing = false;
     function openLightbox(src, name) {
       lightboxImage.src = src;
       lightboxImage.alt = name || '';
@@ -243,19 +245,35 @@
       lightbox.setAttribute('aria-hidden', 'false');
       lightbox.classList.add('open');
       document.body.style.overflow = 'hidden';
-      try { history.pushState({ asalOverlay: 'lightbox' }, ''); } catch (e) {}
+      try {
+        history.pushState({ asalOverlay: 'lightbox' }, 'ASAL Photo');
+        lightboxPushed = true;
+      } catch (e) { lightboxPushed = false; }
     }
-    function closeLightbox(popDone) {
+    function closeLightbox() {
+      if (!lightbox.classList.contains('open')) return;
       lightbox.setAttribute('aria-hidden', 'true');
       lightbox.classList.remove('open');
       document.body.style.overflow = '';
       lightboxImage.src = '';
+      // If user closed via UI (not back button), pop the state we pushed
+      if (lightboxPushed && !lightboxClosing) {
+        lightboxPushed = false;
+        try { history.back(); } catch (e) {}
+      }
+      lightboxClosing = false;
     }
     // Expose for global back handler
     window.__asalCloseLightbox = function () {
-      if (lightbox.classList.contains('open')) { closeLightbox(); return true; }
+      if (lightbox.classList.contains('open')) {
+        lightboxClosing = true;
+        lightboxPushed = false; // state already popped by back button
+        closeLightbox();
+        return true;
+      }
       return false;
     };
+    window.__asalLightboxClosing = function (v) { lightboxClosing = v; };
 
     // Photo tap opens zoom only (never WhatsApp) — disabled in owner mode
     if (state.isOwner) return;
@@ -588,7 +606,11 @@
       if (handling) return;
       handling = true;
       try {
-        if (window.__asalCloseLightbox && window.__asalCloseLightbox()) { }
+        if (window.__asalCloseLightbox) {
+          // Mark as back-button close so we don't push/pop again
+          if (window.__asalLightboxClosing) window.__asalLightboxClosing(true);
+          window.__asalCloseLightbox();
+        }
         else if (window.__asalCloseEditModal && window.__asalCloseEditModal()) { }
       } finally { handling = false; }
     });
