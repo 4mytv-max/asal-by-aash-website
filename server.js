@@ -406,9 +406,12 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
     let apiRes;
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    let lastStatus = 0;
     try {
-      apiRes = await fetch(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(GEMINI_API_KEY),
+      for (const model of modelsToTry) {
+        apiRes = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(GEMINI_API_KEY),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -417,8 +420,11 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
             generationConfig: { maxOutputTokens: 40, temperature: 0.4 },
           }),
           signal: controller.signal,
-        }
-      );
+          }
+        );
+        lastStatus = apiRes.status;
+        if (apiRes.ok) break;
+      }
     } finally {
       clearTimeout(timer);
     }
