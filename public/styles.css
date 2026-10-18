@@ -728,3 +728,9 @@ p.hero-estd {
 .stock-edit-btn, .stock-delete-btn { padding: 6px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; border: 1px solid #d4a0b0; }
 .stock-edit-btn { background: #fff; color: #a0506a; }
 .stock-delete-btn { background: #c0392b; color: #fff; border-color: #c0392b; }
+
+/* Edit modal: dynamic model slots */
+.admin-model-slot { border: 1px solid #f0d0dc; border-radius: 10px; padding: 12px; margin-bottom: 12px; position: relative; }
+.admin-add-model-btn { display: block; width: 100%; padding: 12px; margin: 8px 0 16px; border: 2px dashed #d4a0b0; background: #fff; color: #a0506a; border-radius: 10px; font-size: 14px; cursor: pointer; }
+.admin-add-model-btn:hover { background: #fdf0f4; }
+.admin-remove-model-btn { margin-top: 8px; padding: 6px 12px; background: #c0392b; color: #fff; border: none; border-radius: 8px; font-size: 12px; cursor: pointer; }
