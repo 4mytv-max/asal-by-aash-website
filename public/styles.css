@@ -694,17 +694,18 @@
       .hero-logo-ring, .hero-logo-text, .hero-logo-wrap::after { animation: none; }
     }
 
-/* ESTD 2025 below hero logo - bright golden, logo font size, touching circle */
-.hero-copy .hero-estd {
-  display: block;
-  width: 100%;
-  text-align: center;
-  font-size: 9px;
-  letter-spacing: 3px;
-  color: #f5c542;
-  font-weight: 700;
-  margin: 2px 0 16px;
-  padding: 0;
-  text-transform: uppercase;
-  text-shadow: 0 0 8px rgba(245, 197, 66, 0.4);
+/* ESTD 2025 below hero logo - vivid golden, must override all */
+.hero-copy > p.hero-estd,
+p.hero-estd {
+  display: block !important;
+  width: 100% !important;
+  text-align: center !important;
+  font-size: 10px !important;
+  letter-spacing: 4px !important;
+  color: #ffd700 !important;
+  font-weight: 800 !important;
+  margin: 4px 0 16px !important;
+  padding: 0 !important;
+  text-transform: uppercase !important;
+  opacity: 1 !important;
 }
