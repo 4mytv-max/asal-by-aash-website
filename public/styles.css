@@ -228,7 +228,7 @@
       font-weight: 600;
     }
     h1 em { color: var(--pink); font-weight: 600; }
-    .hero-copy > p:not(.eyebrow):not(.size-promise) {
+    .hero-copy > p:not(.eyebrow):not(.size-promise):not(.hero-estd) {
       max-width: 560px;
       margin: 23px 0 12px;
       color: #eadde5;
@@ -643,7 +643,7 @@
       .hero { border-radius: 0 0 16px 16px; }
       .hero-copy { padding: 46px 50px 76px; text-align: center; }
       .hero-copy h1 { margin-inline: auto; }
-      .hero-copy > p:not(.eyebrow):not(.size-promise) { margin-inline: auto; }
+      .hero-copy > p:not(.eyebrow):not(.size-promise):not(.hero-estd) { margin-inline: auto; }
       .hero-actions { justify-content: center; }
       .steps { margin-top: -30px; position: relative; z-index: 3; padding: 42px 30px 36px; border-radius: 10px; }
       .steps-list { grid-template-columns: minmax(0, 1fr) 26px minmax(0, 1fr) 26px minmax(0, 1fr) 26px minmax(0, 1fr); gap: 5px; align-items: stretch; }
