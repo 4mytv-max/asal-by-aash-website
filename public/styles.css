@@ -139,6 +139,15 @@
       overflow: hidden;
     }
     .hero-copy { padding: 30px 20px 38px; align-self: center; position: relative; z-index: 2; }
+    .hero-estd {
+      text-align: center;
+      font-size: 11px;
+      letter-spacing: 4px;
+      color: #b76e79;
+      font-weight: 600;
+      margin: -16px 0 20px;
+      text-transform: uppercase;
+    }
     .hero-logo-wrap {
       position: relative;
       width: clamp(86px, 22vw, 112px);
