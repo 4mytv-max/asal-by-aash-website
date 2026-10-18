@@ -284,11 +284,35 @@
         }
         var html = '';
         rows.forEach(function (r) {
-          html += '<div class="stock-row">' +
+          html += '<div class="stock-row" data-row-id="' + r.id + '">' +
             (r.fabric_image_url ? '<img src="' + esc(r.fabric_image_url) + '" alt="" loading="lazy" />' : '') +
-            '<span>' + esc(r.fabric_name) + '</span></div>';
+            '<span>' + esc(r.fabric_name) + '</span>' +
+            '<div class="stock-row-actions">' +
+            '<button type="button" class="stock-edit-btn" data-stock-edit="' + r.id + '">✏️ Edit</button>' +
+            '<button type="button" class="stock-delete-btn" data-stock-delete="' + r.id + '">🗑️ Delete</button>' +
+            '</div></div>';
         });
         stockList.innerHTML = html;
+        // Bind edit/delete
+        stockList.querySelectorAll('[data-stock-delete]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-stock-delete');
+            var row = rows.find(function (x) { return String(x.id) === String(id); });
+            if (!confirm('Delete "' + (row ? row.fabric_name : '') + '"?')) return;
+            adminFetch('/api/admin/catalog/' + id, { method: 'DELETE' })
+              .then(function (res) {
+                if (res.ok) { setStatus(publishStatus, 'Deleted.', 'ok'); loadStockList(); }
+                else setStatus(publishStatus, 'Delete failed.', 'err');
+              });
+          });
+        });
+        stockList.querySelectorAll('[data-stock-edit]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-stock-edit');
+            // Redirect to main site owner mode edit for full editing
+            window.location.href = '/?owner=1#edit-' + id;
+          });
+        });
       })
       .catch(function () {
         stockList.innerHTML = '<p class="stock-count">Could not load stock.</p>';
