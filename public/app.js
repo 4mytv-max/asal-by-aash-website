@@ -246,13 +246,19 @@
       lightbox.setAttribute('aria-hidden', 'false');
       lightbox.classList.add('open');
       document.body.style.overflow = 'hidden';
+      try { history.pushState({ asalOverlay: 'lightbox' }, ''); } catch (e) {}
     }
-    function closeLightbox() {
+    function closeLightbox(popDone) {
       lightbox.setAttribute('aria-hidden', 'true');
       lightbox.classList.remove('open');
       document.body.style.overflow = '';
       lightboxImage.src = '';
     }
+    // Expose for global back handler
+    window.__asalCloseLightbox = function () {
+      if (lightbox.classList.contains('open')) { closeLightbox(); return true; }
+      return false;
+    };
 
     // Photo tap opens zoom only (never WhatsApp) — disabled in owner mode
     if (state.isOwner) return;
@@ -548,6 +554,19 @@
     });
   }
 
+  // ---------- Android back button: close overlays instead of exiting ----------
+  (function () {
+    var handling = false;
+    window.addEventListener('popstate', function () {
+      if (handling) return;
+      handling = true;
+      try {
+        if (window.__asalCloseLightbox && window.__asalCloseLightbox()) { }
+        else if (window.__asalCloseEditModal && window.__asalCloseEditModal()) { }
+      } finally { handling = false; }
+    });
+  })();
+
   // ---------- Row edit modal (single-row form) ----------
   var editingRowId = null;
 
@@ -645,6 +664,12 @@
     });
     document.getElementById('row-edit-modal').hidden = false;
     document.body.style.overflow = 'hidden';
+    try { history.pushState({ asalOverlay: 'editModal' }, ''); } catch (e) {}
+    window.__asalCloseEditModal = function () {
+      var m = document.getElementById('row-edit-modal');
+      if (m && !m.hidden) { closeRowEditModal(); return true; }
+      return false;
+    };
   }
 
   function closeRowEditModal() {
