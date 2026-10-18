@@ -212,13 +212,19 @@
   }
 
   // ---------- Lightbox with pinch zoom ----------
+  // Shared state: renderCatalog() re-runs bindPhotoZoom() on every change,
+  // so static-element listeners must bind ONCE and all binds share one zoom state.
+  var lbZoomState = { scale: 1, x: 0, y: 0 };
+  var lbPushed = false;
+  var lbClosing = false;
+  var lightboxStaticBound = false;
   function bindPhotoZoom() {
     var lightbox = document.getElementById('photo-lightbox');
     var lightboxImage = lightbox.querySelector('.lightbox-image');
     var lightboxStage = lightbox.querySelector('.lightbox-stage');
     var lightboxName = document.getElementById('lightbox-name');
     var closeButton = lightbox.querySelector('.lightbox-close');
-    var zoomState = { scale: 1, x: 0, y: 0 };
+    var zoomState = lbZoomState; // shared across re-binds
     var activePointers = {};
     var dragStart = null;
     var pinchStart = null;
@@ -252,8 +258,6 @@
       var r = lightboxStage.getBoundingClientRect();
       return { x: clientX - r.left, y: clientY - r.top };
     }
-    var lightboxPushed = false;
-    var lightboxClosing = false;
     function openLightbox(src, name) {
       lightboxImage.src = src;
       lightboxImage.alt = name || '';
@@ -264,8 +268,8 @@
       document.body.style.overflow = 'hidden';
       try {
         history.pushState({ asalOverlay: 'lightbox' }, 'ASAL Photo');
-        lightboxPushed = true;
-      } catch (e) { lightboxPushed = false; }
+        lbPushed = true;
+      } catch (e) { lbPushed = false; }
     }
     function closeLightbox() {
       if (!lightbox.classList.contains('open')) return;
@@ -274,37 +278,27 @@
       document.body.style.overflow = '';
       lightboxImage.src = '';
       // If user closed via UI (not back button), pop the state we pushed
-      if (lightboxPushed && !lightboxClosing) {
-        lightboxPushed = false;
+      if (lbPushed && !lbClosing) {
+        lbPushed = false;
         try { history.back(); } catch (e) {}
       }
-      lightboxClosing = false;
+      lbClosing = false;
     }
     // Expose for global back handler
     window.__asalCloseLightbox = function () {
       if (lightbox.classList.contains('open')) {
-        lightboxClosing = true;
-        lightboxPushed = false; // state already popped by back button
+        lbClosing = true;
+        lbPushed = false; // state already popped by back button
         closeLightbox();
         return true;
       }
       return false;
     };
-    window.__asalLightboxClosing = function (v) { lightboxClosing = v; };
+    window.__asalLightboxClosing = function (v) { lbClosing = v; };
 
-    // Photo tap opens zoom only (never WhatsApp) — disabled in owner mode
-    if (state.isOwner) return;
-    document.querySelectorAll('.product-photo img').forEach(function (img) {
-      img.style.cursor = 'zoom-in';
-      img.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        var card = img.closest('.product');
-        var name = card ? card.querySelector('strong').textContent : '';
-        openLightbox(img.src, name);
-      });
-    });
-
+    // Static lightbox listeners: bind ONCE (bindPhotoZoom re-runs every render)
+    if (!lightboxStaticBound) {
+      lightboxStaticBound = true;
     closeButton.addEventListener('click', closeLightbox);
     lightbox.addEventListener('click', function (e) {
       if (e.target === lightbox) closeLightbox();
@@ -409,6 +403,21 @@
     lightboxStage.addEventListener('pointerup', function (e) {
       delete activePointers[e.pointerId];
       dragStart = null;
+    });
+    } // end one-time static bindings
+
+    // Photo tap opens zoom only (never WhatsApp) — disabled in owner mode.
+    // Catalog DOM is fresh every render, so re-bind these each time.
+    if (state.isOwner) return;
+    document.querySelectorAll('.product-photo img').forEach(function (img) {
+      img.style.cursor = 'zoom-in';
+      img.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var card = img.closest('.product');
+        var name = card ? card.querySelector('strong').textContent : '';
+        openLightbox(img.src, name);
+      });
     });
   }
 
