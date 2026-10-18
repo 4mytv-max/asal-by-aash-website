@@ -142,7 +142,7 @@
     .hero-logo-wrap {
       position: relative;
       width: clamp(86px, 22vw, 112px);
-      margin: 0 auto 10px;
+      margin: 0 auto 6px;
       border-radius: 50%;
       perspective: 700px;
     }
@@ -694,18 +694,22 @@
       .hero-logo-ring, .hero-logo-text, .hero-logo-wrap::after { animation: none; }
     }
 
-/* ESTD 2025 below hero logo - vivid golden, must override all */
+/* ESTD 2025 - metallic golden texture, attached below logo circle */
 .hero-copy > p.hero-estd,
 p.hero-estd {
   display: block !important;
   width: 100% !important;
   text-align: center !important;
-  font-size: 10px !important;
-  letter-spacing: 4px !important;
-  color: #ffd700 !important;
-  font-weight: 800 !important;
-  margin: 4px 0 16px !important;
+  font-size: 7px !important;
+  letter-spacing: 2.5px !important;
+  font-weight: 600 !important;
+  margin: -4px 0 14px !important;
   padding: 0 !important;
   text-transform: uppercase !important;
   opacity: 1 !important;
+  background: linear-gradient(180deg, #fff8dc 0%, #f6e27a 30%, #d4af37 55%, #9a7b1e 80%, #e6c65a 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
 }
