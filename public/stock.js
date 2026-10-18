@@ -171,7 +171,8 @@
   });
 
   // Model photo previews
-  document.querySelectorAll('.model-photo').forEach(function (input) {
+  var modelCount = 4;
+  function bindModelInput(input) {
     input.addEventListener('change', function () {
       var file = input.files[0];
       var wrap = document.getElementById('model-preview-' + input.dataset.i);
@@ -180,7 +181,28 @@
         wrap.style.display = 'block';
       }
     });
-  });
+  }
+  document.querySelectorAll('.model-photo').forEach(bindModelInput);
+
+  // Add more model photo slots dynamically
+  var addModelBtn = document.getElementById('add-model-btn');
+  if (addModelBtn) {
+    addModelBtn.addEventListener('click', function () {
+      var container = document.querySelector('.stock-models');
+      var div = document.createElement('div');
+      div.className = 'model-slot';
+      div.innerHTML =
+        '<input type="file" class="model-photo" data-i="' + modelCount + '" accept="image/*" />' +
+        '<div class="stock-preview" id="model-preview-' + modelCount + '" style="display:none"><img alt="Model ' + (modelCount + 1) + ' preview" /></div>' +
+        '<button type="button" class="model-remove" title="Remove">×</button>';
+      container.appendChild(div);
+      bindModelInput(div.querySelector('.model-photo'));
+      div.querySelector('.model-remove').addEventListener('click', function () {
+        div.remove();
+      });
+      modelCount++;
+    });
+  }
 
   // Publish
   publishBtn.addEventListener('click', function () {
@@ -218,10 +240,9 @@
       .then(function (res) {
         if (requireAuth(res)) return;
         if (!res.ok) throw new Error((res.d && res.d.error) || 'Publish failed');
-        var missing = 0;
-        document.querySelectorAll('.model-photo').forEach(function (i) { if (!i.files[0]) missing++; });
+        var uploadedCount = urls.filter(function (u) { return u; }).length;
         var msg = '✅ "' + name + '" is now live on the website!';
-        if (missing === 4) msg += ' Model photos pending — ask Muse in chat to generate them.';
+        if (uploadedCount === 0) msg += ' Model photos pending — ask Muse in chat to generate them.';
         setStatus(publishStatus, msg, 'ok');
         // Reset form
         fabricInput.value = '';
