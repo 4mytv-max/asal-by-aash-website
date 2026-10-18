@@ -484,6 +484,36 @@ app.put('/api/admin/catalog/:id', requireAdmin, ah(async (req, res) => {
   res.json({ row: rowToJson(row) });
 }));
 
+// Restore the 7 original seed fabrics (skips ones already present by name)
+app.post('/api/admin/catalog/restore-seed', requireAdmin, ah(async (req, res) => {
+  const existing = (await db.execute('SELECT fabric_name FROM fabric_rows')).rows.map(r => r.fabric_name);
+  const toAdd = CATALOG_SEED.filter(s => !existing.includes(s.fabric));
+  const maxOrder = num((await db.execute('SELECT COALESCE(MAX(sort_order), 0) AS mx FROM fabric_rows')).rows[0].mx);
+  let added = 0;
+  for (const r of toAdd) {
+    const ext = r.ext || 'jpg';
+    const models = MODEL_NAMES.map((mn, i) => ({
+      name: mn,
+      image_key: `/images/catalog/${r.slug}-${MODEL_SLUGS[i]}.${ext}`,
+      price: '',
+    }));
+    await db.execute({
+      sql: `INSERT INTO fabric_rows
+        (fabric_name, fabric_image_key, model_1_name, model_1_image_key, model_2_name, model_2_image_key,
+         model_3_name, model_3_image_key, model_4_name, model_4_image_key, models_json, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        r.fabric, `/images/catalog/${r.slug}-fabric.${ext}`,
+        models[0].name, models[0].image_key, models[1].name, models[1].image_key,
+        models[2].name, models[2].image_key, models[3].name, models[3].image_key,
+        JSON.stringify(models), maxOrder + added + 1,
+      ],
+    });
+    added++;
+  }
+  res.json({ restored: added, total: toAdd.length });
+}));
+
 app.post('/api/admin/catalog/reorder', requireAdmin, ah(async (req, res) => {
   const { order } = req.body || {};
   if (!Array.isArray(order) || !order.length)
