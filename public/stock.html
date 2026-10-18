@@ -26,6 +26,12 @@
     .stock-preview { display: none; margin-top: 10px; }
     .stock-preview img { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid #f3dfe7; }
     .stock-models { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .model-slot { border: 1px solid #f0d0dc; border-radius: 10px; padding: 10px; position: relative; }
+    .model-slot .stock-preview img { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; }
+    .model-slot input[type="text"] { width: 100%; margin: 6px 0; padding: 8px; border: 1px solid #e0c0cd; border-radius: 8px; font-size: 14px; }
+    .model-pick { width: 100%; padding: 8px; margin-top: 6px; border: 1px dashed #d4a0b0; background: #fff; border-radius: 8px; cursor: pointer; font-size: 13px; }
+    .model-remove { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; border: none; background: #c0392b; color: #fff; font-size: 16px; cursor: pointer; }
+    .stock-move-btn { padding: 6px 10px; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid #d4a0b0; background: #fff; }
     .stock-models .stock-preview img { width: 90px; height: 90px; }
     .stock-add-btn { margin-top: 12px; padding: 10px 20px; border: 2px dashed #d4a0b0; background: #fff; color: #a0506a; border-radius: 10px; font-size: 14px; cursor: pointer; }
     .stock-add-btn:hover { background: #fdf0f4; }
@@ -100,24 +106,7 @@
 
         <div class="stock-field">
           <label>3. Model photos (optional — as many as you want)</label>
-          <div class="stock-models">
-            <div>
-              <input type="file" class="model-photo" data-i="0" accept="image/*" />
-              <div class="stock-preview" id="model-preview-0"><img alt="Model 1 preview" /></div>
-            </div>
-            <div>
-              <input type="file" class="model-photo" data-i="1" accept="image/*" />
-              <div class="stock-preview" id="model-preview-1"><img alt="Model 2 preview" /></div>
-            </div>
-            <div>
-              <input type="file" class="model-photo" data-i="2" accept="image/*" />
-              <div class="stock-preview" id="model-preview-2"><img alt="Model 3 preview" /></div>
-            </div>
-            <div>
-              <input type="file" class="model-photo" data-i="3" accept="image/*" />
-              <div class="stock-preview" id="model-preview-3"><img alt="Model 4 preview" /></div>
-            </div>
-          </div>
+          <div class="stock-models"></div>
           <button type="button" id="add-model-btn" class="stock-add-btn">+ Add More Photos</button>
           <button type="button" id="multi-select-btn" class="stock-add-btn">📸 Select Multiple from Gallery</button>
           <input type="file" id="multi-file-input" accept="image/*" multiple style="display:none" />
@@ -138,6 +127,6 @@
     </div>
 
   </div>
-  <script src="/stock.js?v=20251018l"></script>
+  <script src="/stock.js?v=20251018m"></script>
 </body>
 </html>
