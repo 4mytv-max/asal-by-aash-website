@@ -666,7 +666,14 @@
     form.querySelectorAll('[data-remove-slot]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         btn.closest('.admin-model-slot').remove();
+        editModalDirty = true;
       });
+    });
+    // Track unsaved changes
+    editModalDirty = false;
+    form.querySelectorAll('input[type="text"], input[type="file"]').forEach(function (input) {
+      input.addEventListener('input', function () { editModalDirty = true; });
+      input.addEventListener('change', function () { editModalDirty = true; });
     });
     document.getElementById('row-edit-modal').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -678,10 +685,15 @@
     };
   }
 
-  function closeRowEditModal() {
+  var editModalDirty = false;
+  function closeRowEditModal(force) {
+    if (!force && editModalDirty) {
+      if (!confirm('You have unsaved changes. Close without saving?')) return;
+    }
     document.getElementById('row-edit-modal').hidden = true;
     document.body.style.overflow = '';
     editingRowId = null;
+    editModalDirty = false;
   }
 
   function saveRowFromModal() {
@@ -719,7 +731,7 @@
       body: JSON.stringify(body),
     }).then(function (r) { return r.json(); })
     .then(function () { return loadCatalog(); })
-    .then(function () { renderCatalog(); applyContent(); closeRowEditModal(); })
+    .then(function () { renderCatalog(); applyContent(); editModalDirty = false; closeRowEditModal(true); })
     .catch(function () { alert('Save failed'); });
   }
 
