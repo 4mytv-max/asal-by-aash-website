@@ -288,15 +288,37 @@
         }
         var html = '';
         rows.forEach(function (r) {
+          var photos = '';
+          if (r.fabric_image_url) photos += '<img src="' + esc(r.fabric_image_url) + '" alt="Fabric" loading="lazy" title="Fabric" />';
+          (r.model_image_urls || []).forEach(function (u, i) {
+            if (u) photos += '<img src="' + esc(u) + '" alt="Model ' + (i+1) + '" loading="lazy" title="' + esc((r.model_names||[])[i]||('Model '+(i+1))) + '" />';
+          });
+          var photoCount = (r.model_image_urls || []).filter(function(u){return u;}).length + (r.fabric_image_url ? 1 : 0);
           html += '<div class="stock-row" data-row-id="' + r.id + '">' +
-            (r.fabric_image_url ? '<img src="' + esc(r.fabric_image_url) + '" alt="" loading="lazy" />' : '') +
-            '<span>' + esc(r.fabric_name) + '</span>' +
+            '<div class="stock-row-main">' +
+            (r.fabric_image_url ? '<img class="stock-thumb" src="' + esc(r.fabric_image_url) + '" alt="" loading="lazy" />' : '') +
+            '<span>' + esc(r.fabric_name) + ' <small>(' + photoCount + ' photos)</small></span>' +
             '<div class="stock-row-actions">' +
+            '<button type="button" class="stock-view-btn" data-stock-view="' + r.id + '">👁️ Photos</button>' +
             '<button type="button" class="stock-edit-btn" data-stock-edit="' + r.id + '">✏️ Edit</button>' +
             '<button type="button" class="stock-delete-btn" data-stock-delete="' + r.id + '">🗑️ Delete</button>' +
-            '</div></div>';
+            '</div></div>' +
+            '<div class="stock-photos" id="stock-photos-' + r.id + '" style="display:none">' + photos + '</div>' +
+            '</div>';
         });
         stockList.innerHTML = html;
+        // Bind photo toggle
+        stockList.querySelectorAll('[data-stock-view]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-stock-view');
+            var el = document.getElementById('stock-photos-' + id);
+            if (el) {
+              var show = el.style.display === 'none';
+              el.style.display = show ? 'flex' : 'none';
+              btn.textContent = show ? '🙈 Hide' : '👁️ Photos';
+            }
+          });
+        });
         // Bind edit/delete
         stockList.querySelectorAll('[data-stock-delete]').forEach(function (btn) {
           btn.addEventListener('click', function () {
