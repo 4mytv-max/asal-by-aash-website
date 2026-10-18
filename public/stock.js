@@ -204,6 +204,46 @@
     });
   }
 
+  // Multi-select from gallery: pick many photos at once
+  var multiBtn = document.getElementById('multi-select-btn');
+  var multiInput = document.getElementById('multi-file-input');
+  if (multiBtn && multiInput) {
+    multiBtn.addEventListener('click', function () { multiInput.click(); });
+    multiInput.addEventListener('change', function () {
+      var files = Array.prototype.slice.call(multiInput.files);
+      if (!files.length) return;
+      setStatus(publishStatus, 'Adding ' + files.length + ' photos…', 'ok');
+      var container = document.querySelector('.stock-models');
+      files.forEach(function (file) {
+        var div = document.createElement('div');
+        div.className = 'model-slot';
+        var idx = modelCount++;
+        div.innerHTML =
+          '<div class="stock-preview" id="model-preview-' + idx + '"><img alt="Model ' + (idx + 1) + ' preview" /></div>' +
+          '<button type="button" class="model-remove" title="Remove">×</button>';
+        // Create a real file input and assign the file
+        var fi = document.createElement('input');
+        fi.type = 'file'; fi.accept = 'image/*';
+        fi.className = 'model-photo'; fi.dataset.i = idx;
+        fi.style.display = 'none';
+        var dt = new DataTransfer();
+        dt.items.add(file);
+        fi.files = dt.files;
+        div.insertBefore(fi, div.firstChild);
+        container.appendChild(div);
+        // Show preview
+        var wrap = document.getElementById('model-preview-' + idx);
+        if (wrap) {
+          wrap.querySelector('img').src = URL.createObjectURL(file);
+          wrap.style.display = 'block';
+        }
+        div.querySelector('.model-remove').addEventListener('click', function () { div.remove(); });
+      });
+      multiInput.value = '';
+      setStatus(publishStatus, files.length + ' photos added! You can remove any before publishing.', 'ok');
+    });
+  }
+
   // Publish
   publishBtn.addEventListener('click', function () {
     var name = nameInput.value.trim();
