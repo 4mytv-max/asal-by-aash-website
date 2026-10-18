@@ -356,7 +356,8 @@
       cancelBtn.addEventListener('click', exitEditMode);
     }
     cancelBtn.style.display = '';
-    document.querySelector('.stock-add-section h2').textContent = '✏️ Edit: ' + row.fabric_name;
+    var addH2 = document.querySelector('#stock-main h2');
+    if (addH2) addH2.textContent = '✏️ Edit: ' + row.fabric_name;
     window.scrollTo({ top: 0, behavior: 'smooth' });
     setStatus(publishStatus, 'Editing "' + row.fabric_name + '". Make changes and tap Update.', 'ok');
   }
@@ -375,7 +376,8 @@
     publishBtn.textContent = '🚀 Publish to Website';
     var cancelBtn = document.getElementById('cancel-edit-btn');
     if (cancelBtn) cancelBtn.style.display = 'none';
-    document.querySelector('.stock-add-section h2').textContent = 'Add New Fabric';
+    var addH2b = document.querySelector('#stock-main h2');
+    if (addH2b) addH2b.textContent = 'Add New Fabric';
     setStatus(publishStatus, '');
   }
   function addModelSlot(name, price, imgUrl) {
