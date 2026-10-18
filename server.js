@@ -433,6 +433,12 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: buf.toString('base64') } }] }],
             generationConfig: { maxOutputTokens: 40, temperature: 0.4 },
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+            ],
           }),
           signal: controller.signal,
           }
@@ -450,10 +456,20 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
       return res.status(502).json({ error: 'AI service error (code ' + apiRes.status + '). Please check API key and try again.' });
     }
     const data = await apiRes.json();
+    console.error('Gemini response:', JSON.stringify(data).slice(0, 1000));
     let text = '';
     try {
-      text = (data.candidates[0].content.parts || []).map(p => p.text || '').join('').trim();
-    } catch (e) { text = ''; }
+      const cands = data.candidates || [];
+      for (const c of cands) {
+        const parts = (c.content && c.content.parts) || [];
+        for (const p of parts) { if (p.text) text += p.text; }
+      }
+      text = text.trim();
+      // Check for blocked content
+      if (!text && cands[0] && cands[0].finishReason) {
+        console.error('Finish reason:', cands[0].finishReason);
+      }
+    } catch (e) { console.error('Parse error:', e.message); text = ''; }
     if (!text) return res.status(502).json({ error: 'AI returned no name. Please try again.' });
     const name = text.split('\n')[0].trim().replace(/^["'“”]+|["'“”]+$/g, '').slice(0, 80);
     res.json({ name });
