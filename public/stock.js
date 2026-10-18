@@ -110,16 +110,42 @@
       });
   });
 
-  // AI name suggestion
+  // AI name suggestion - sends a small preview, original stays full quality
+  function makePreview(file, maxSize, cb) {
+    var img = new Image();
+    img.onload = function () {
+      var scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+      var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      var c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      cb(c.toDataURL('image/jpeg', 0.7).split(',')[1]);
+    };
+    img.onerror = function () { cb(null); };
+    img.src = URL.createObjectURL(file);
+  }
+
+  var fabricFile = null;
+  // Store the file when selected
+  var origHandler = fabricInput.onchange;
+  fabricInput.addEventListener('change', function () {
+    if (fabricInput.files && fabricInput.files[0]) fabricFile = fabricInput.files[0];
+  });
+
   suggestBtn.addEventListener('click', function () {
     if (!fabricUrl) return;
     suggestBtn.disabled = true;
     suggestBtn.textContent = '🤖 Thinking…';
-    adminFetch('/api/admin/suggest-name', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_url: fabricUrl }),
-    })
+    var sendPreview = function (previewB64) {
+      var body = previewB64
+        ? { image_preview: previewB64 }
+        : { image_url: fabricUrl };
+      adminFetch('/api/admin/suggest-name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
       .then(function (res) {
         if (requireAuth(res)) return;
         if (res.ok && res.d.name) {
@@ -136,6 +162,12 @@
         suggestBtn.disabled = false;
         suggestBtn.textContent = '🤖 Suggest Name';
       });
+    };
+    if (fabricFile) {
+      makePreview(fabricFile, 512, sendPreview);
+    } else {
+      sendPreview(null);
+    }
   });
 
   // Model photo previews
