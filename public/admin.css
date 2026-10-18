@@ -116,11 +116,14 @@
 }
 .admin-img-slot { text-align: center; }
 .admin-img-slot img {
-  width: 150px;
-  height: 200px;
-  object-fit: cover;
+  width: auto;
+  max-width: 220px;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
   border-radius: 6px;
   border: 1px solid var(--line);
+  background: #f8f0f3;
 }
 .admin-img-slot input[type="file"] { font-size: 11px; margin-top: 4px; }
 .admin-row-actions { display: flex; gap: 8px; margin-top: 12px; }
