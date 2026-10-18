@@ -90,8 +90,9 @@
       }
       var xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/admin/upload');
-      var token = localStorage.getItem('asal_admin_token') || sessionStorage.getItem('asal_admin_token') || '';
-      if (token) xhr.setRequestHeader('X-Admin-Token', token);
+      // Use the live token variable (set at login)
+      var liveToken = token || sessionStorage.getItem('asal_admin_token') || '';
+      if (liveToken) xhr.setRequestHeader('X-Admin-Token', liveToken);
       xhr.upload.onprogress = function (e) {
         if (e.lengthComputable && onProgress) {
           onProgress(Math.round((e.loaded / e.total) * 100));
