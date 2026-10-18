@@ -4,6 +4,8 @@
 
   var token = sessionStorage.getItem('asal_admin_token') || null;
   var fabricUrl = null;
+  var editingId = null;
+  var editingModels = []; // existing models when editing: [{name, image_url, price}]
 
   var loginGate = document.getElementById('login-gate');
   var stockMain = document.getElementById('stock-main');
@@ -195,37 +197,14 @@
     }
   });
 
-  // Model photo previews
-  var modelCount = 4;
-  function bindModelInput(input) {
-    input.addEventListener('change', function () {
-      var file = input.files[0];
-      var wrap = document.getElementById('model-preview-' + input.dataset.i);
-      if (file && wrap) {
-        wrap.querySelector('img').src = URL.createObjectURL(file);
-        wrap.style.display = 'block';
-      }
-    });
-  }
-  document.querySelectorAll('.model-photo').forEach(bindModelInput);
+  // Model photo slots (uses addModelSlot defined above)
+  var modelCount = 0;
 
   // Add more model photo slots dynamically
   var addModelBtn = document.getElementById('add-model-btn');
   if (addModelBtn) {
     addModelBtn.addEventListener('click', function () {
-      var container = document.querySelector('.stock-models');
-      var div = document.createElement('div');
-      div.className = 'model-slot';
-      div.innerHTML =
-        '<input type="file" class="model-photo" data-i="' + modelCount + '" accept="image/*" />' +
-        '<div class="stock-preview" id="model-preview-' + modelCount + '" style="display:none"><img alt="Model ' + (modelCount + 1) + ' preview" /></div>' +
-        '<button type="button" class="model-remove" title="Remove">×</button>';
-      container.appendChild(div);
-      bindModelInput(div.querySelector('.model-photo'));
-      div.querySelector('.model-remove').addEventListener('click', function () {
-        div.remove();
-      });
-      modelCount++;
+      addModelSlot('', '', '');
     });
   }
 
@@ -238,38 +217,24 @@
       var files = Array.prototype.slice.call(multiInput.files);
       if (!files.length) return;
       setStatus(publishStatus, 'Adding ' + files.length + ' photos…', 'ok');
-      var container = document.querySelector('.stock-models');
       files.forEach(function (file) {
-        var div = document.createElement('div');
-        div.className = 'model-slot';
-        var idx = modelCount++;
-        div.innerHTML =
-          '<div class="stock-preview" id="model-preview-' + idx + '"><img alt="Model ' + (idx + 1) + ' preview" /></div>' +
-          '<button type="button" class="model-remove" title="Remove">×</button>';
-        // Create a real file input and assign the file
-        var fi = document.createElement('input');
-        fi.type = 'file'; fi.accept = 'image/*';
-        fi.className = 'model-photo'; fi.dataset.i = idx;
-        fi.style.display = 'none';
+        addModelSlot('', '', '');
+        // Get the last added slot and set the file
+        var slots = document.querySelectorAll('.model-slot');
+        var div = slots[slots.length - 1];
+        var fi = div.querySelector('.model-photo');
         var dt = new DataTransfer();
         dt.items.add(file);
         fi.files = dt.files;
-        div.insertBefore(fi, div.firstChild);
-        container.appendChild(div);
-        // Show preview
-        var wrap = document.getElementById('model-preview-' + idx);
-        if (wrap) {
-          wrap.querySelector('img').src = URL.createObjectURL(file);
-          wrap.style.display = 'block';
-        }
-        div.querySelector('.model-remove').addEventListener('click', function () { div.remove(); });
+        div.querySelector('.stock-preview img').src = URL.createObjectURL(file);
+        div.querySelector('.stock-preview').style.display = 'block';
       });
       multiInput.value = '';
       setStatus(publishStatus, files.length + ' photos added! You can remove any before publishing.', 'ok');
     });
   }
 
-  // Publish
+  // Publish (add) or Update (edit)
   publishBtn.addEventListener('click', function () {
     var name = nameInput.value.trim();
     if (!fabricUrl) {
@@ -281,53 +246,70 @@
       nameInput.focus();
       return;
     }
-    var modelCount = document.querySelectorAll('.model-photo').length;
-    var filledModels = 0;
-    document.querySelectorAll('.model-photo').forEach(function (i) { if (i.files[0]) filledModels++; });
-    if (!confirm('Publish "' + name + '" to the website?\n\nFabric photo: 1\nModel photos: ' + filledModels + '\n\nThis will be visible to customers.')) return;
+    var isEdit = editingId !== null;
+    var slots = Array.prototype.slice.call(document.querySelectorAll('.model-slot'));
+    var filledModels = slots.filter(function (s) {
+      return s.querySelector('.model-photo').files[0] || s.dataset.existingUrl;
+    }).length;
+    var actionWord = isEdit ? 'Update' : 'Publish';
+    if (!confirm(actionWord + ' "' + name + '"?\n\nFabric photo: 1\nModel photos: ' + filledModels + '\n\n' + (isEdit ? 'Changes will be saved.' : 'This will be visible to customers.'))) return;
     publishBtn.disabled = true;
-    setStatus(publishStatus, 'Publishing…');
+    setStatus(publishStatus, isEdit ? 'Updating…' : 'Publishing…');
 
-    var modelInputs = Array.prototype.slice.call(document.querySelectorAll('.model-photo'));
-    var uploads = modelInputs.map(function (input) {
-      var file = input.files[0];
-      return file ? uploadImage(file, showUploadProgress).catch(function (err) { setStatus(publishStatus, 'Upload failed: ' + err.message, 'err'); return ''; }) : Promise.resolve('');
+    // Upload new files, keep existing URLs
+    var uploads = slots.map(function (slot) {
+      var fileInput = slot.querySelector('.model-photo');
+      var file = fileInput.files[0];
+      if (file) {
+        return uploadImage(file, showUploadProgress).catch(function (err) {
+          setStatus(publishStatus, 'Upload failed: ' + err.message, 'err');
+          return '';
+        }).then(function (url) {
+          return { url: url, name: slot.querySelector('.model-name').value.trim(), price: slot.querySelector('.model-price').value.trim() };
+        });
+      } else if (slot.dataset.existingUrl) {
+        return Promise.resolve({ url: slot.dataset.existingUrl, name: slot.querySelector('.model-name').value.trim(), price: slot.querySelector('.model-price').value.trim() });
+      }
+      return Promise.resolve(null);
     });
 
     Promise.all(uploads)
-      .then(function (urls) {
-        return adminFetch('/api/admin/catalog', {
-          method: 'POST',
+      .then(function (results) {
+        var models = results.filter(function (r) { return r && r.url; });
+        var body = {
+          fabric_name: name,
+          fabric_image_url: fabricUrl,
+          model_names: models.map(function (m) { return m.name; }),
+          model_image_urls: models.map(function (m) { return m.url; }),
+          model_prices: models.map(function (m) { return m.price; }),
+        };
+        var url = isEdit ? '/api/admin/catalog/' + editingId : '/api/admin/catalog';
+        var method = isEdit ? 'PUT' : 'POST';
+        return adminFetch(url, {
+          method: method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fabric_name: name,
-            fabric_image_url: fabricUrl,
-            model_image_urls: urls,
-          }),
+          body: JSON.stringify(body),
+        }).then(function (res) {
+          if (requireAuth(res)) return;
+          if (!res.ok) throw new Error((res.d && res.d.error) || (isEdit ? 'Update failed' : 'Publish failed'));
+          var msg = isEdit ? '✅ "' + name + '" updated!' : '✅ "' + name + '" is now live on the website!';
+          setStatus(publishStatus, msg, 'ok');
+          if (isEdit) exitEditMode();
+          else {
+            fabricInput.value = '';
+            fabricUrl = null;
+            fabricPreviewWrap.style.display = 'none';
+            nameInput.value = '';
+            suggestBtn.disabled = true;
+            document.querySelector('.stock-models').innerHTML = '';
+            modelCount = 0;
+            for (var i = 0; i < 4; i++) addModelSlot('', '', '');
+          }
+          loadStockList();
         });
-      })
-      .then(function (res) {
-        if (requireAuth(res)) return;
-        if (!res.ok) throw new Error((res.d && res.d.error) || 'Publish failed');
-        var uploadedCount = urls.filter(function (u) { return u; }).length;
-        var msg = '✅ "' + name + '" is now live on the website!';
-        if (uploadedCount === 0) msg += ' Model photos pending — ask Muse in chat to generate them.';
-        setStatus(publishStatus, msg, 'ok');
-        // Reset form
-        fabricInput.value = '';
-        fabricUrl = null;
-        fabricPreviewWrap.style.display = 'none';
-        nameInput.value = '';
-        suggestBtn.disabled = true;
-        document.querySelectorAll('.model-photo').forEach(function (input, idx) {
-          input.value = '';
-          var wrap = document.getElementById('model-preview-' + idx);
-          if (wrap) wrap.style.display = 'none';
-        });
-        loadStockList();
       })
       .catch(function (err) {
-        if (err.message !== 'auth') setStatus(publishStatus, 'Publish failed: ' + err.message, 'err');
+        if (err.message !== 'auth') setStatus(publishStatus, (isEdit ? 'Update' : 'Publish') + ' failed: ' + err.message, 'err');
       })
       .finally(function () {
         publishBtn.disabled = false;
@@ -341,6 +323,89 @@
     });
   }
 
+  function enterEditMode(row) {
+    editingId = row.id;
+    editingModels = (row.model_image_urls || []).map(function (u, i) {
+      return { name: (row.model_names || [])[i] || '', image_url: u || '', price: (row.model_prices || [])[i] || '' };
+    }).filter(function (m) { return m.image_url || m.name; });
+    // Populate form
+    nameInput.value = row.fabric_name || '';
+    fabricUrl = row.fabric_image_url || null;
+    if (fabricUrl) {
+      fabricPreview.src = fabricUrl;
+      fabricPreviewWrap.style.display = 'block';
+    }
+    // Clear model slots and add existing as slots
+    var container = document.querySelector('.stock-models');
+    container.innerHTML = '';
+    modelCount = 0;
+    editingModels.forEach(function (m, i) {
+      addModelSlot(m.name, m.price, m.image_url);
+    });
+    // Update UI
+    publishBtn.textContent = '💾 Update Fabric';
+    var cancelBtn = document.getElementById('cancel-edit-btn');
+    if (!cancelBtn) {
+      cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.id = 'cancel-edit-btn';
+      cancelBtn.className = 'stock-add-btn';
+      cancelBtn.textContent = '❌ Cancel Edit';
+      cancelBtn.style.marginLeft = '8px';
+      publishBtn.parentNode.insertBefore(cancelBtn, publishBtn.nextSibling);
+      cancelBtn.addEventListener('click', exitEditMode);
+    }
+    cancelBtn.style.display = '';
+    document.querySelector('.stock-add-section h2').textContent = '✏️ Edit: ' + row.fabric_name;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setStatus(publishStatus, 'Editing "' + row.fabric_name + '". Make changes and tap Update.', 'ok');
+  }
+  function exitEditMode() {
+    editingId = null;
+    editingModels = [];
+    nameInput.value = '';
+    fabricUrl = null;
+    fabricInput.value = '';
+    fabricPreviewWrap.style.display = 'none';
+    var container = document.querySelector('.stock-models');
+    container.innerHTML = '';
+    modelCount = 0;
+    // Re-add 4 empty slots
+    for (var i = 0; i < 4; i++) addModelSlot('', '', '');
+    publishBtn.textContent = '🚀 Publish to Website';
+    var cancelBtn = document.getElementById('cancel-edit-btn');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    document.querySelector('.stock-add-section h2').textContent = 'Add New Fabric';
+    setStatus(publishStatus, '');
+  }
+  function addModelSlot(name, price, imgUrl) {
+    var container = document.querySelector('.stock-models');
+    var div = document.createElement('div');
+    div.className = 'model-slot';
+    div.dataset.existing = imgUrl ? '1' : '';
+    var idx = modelCount++;
+    div.innerHTML =
+      '<div class="stock-preview"' + (imgUrl ? ' style="display:block"' : ' style="display:none"') + '>' +
+      '<img src="' + (imgUrl || '') + '" alt="Model preview" /></div>' +
+      '<input type="text" class="model-name" placeholder="Model name (e.g. Kurti)" value="' + (name || '').replace(/"/g, '&quot;') + '" />' +
+      '<input type="text" class="model-price" placeholder="Price (optional)" value="' + (price || '').replace(/"/g, '&quot;') + '" />' +
+      '<input type="file" class="model-photo" accept="image/*" style="display:none" />' +
+      '<button type="button" class="model-pick">📷 ' + (imgUrl ? 'Replace' : 'Choose') + ' Photo</button>' +
+      '<button type="button" class="model-remove" title="Remove">×</button>';
+    if (imgUrl) div.dataset.existingUrl = imgUrl;
+    container.appendChild(div);
+    var fileInput = div.querySelector('.model-photo');
+    div.querySelector('.model-pick').addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () {
+      var f = fileInput.files[0];
+      if (!f) return;
+      div.querySelector('.stock-preview img').src = URL.createObjectURL(f);
+      div.querySelector('.stock-preview').style.display = 'block';
+      div.dataset.existing = '';
+      div.dataset.existingUrl = '';
+    });
+    div.querySelector('.model-remove').addEventListener('click', function () { div.remove(); });
+  }
   function loadStockList() {
     adminFetch('/api/admin/catalog')
       .then(function (res) {
@@ -366,6 +431,8 @@
             '<div class="stock-row-actions">' +
             '<button type="button" class="stock-view-btn" data-stock-view="' + r.id + '">👁️ Photos</button>' +
             '<button type="button" class="stock-edit-btn" data-stock-edit="' + r.id + '">✏️ Edit</button>' +
+            '<button type="button" class="stock-move-btn" data-stock-move="' + r.id + '" data-dir="up" title="Move up">⬆️</button>' +
+            '<button type="button" class="stock-move-btn" data-stock-move="' + r.id + '" data-dir="down" title="Move down">⬇️</button>' +
             '<button type="button" class="stock-delete-btn" data-stock-delete="' + r.id + '">🗑️ Delete</button>' +
             '</div></div>' +
             '<div class="stock-photos" id="stock-photos-' + r.id + '" style="display:none">' + photos + '</div>' +
@@ -400,8 +467,37 @@
         stockList.querySelectorAll('[data-stock-edit]').forEach(function (btn) {
           btn.addEventListener('click', function () {
             var id = btn.getAttribute('data-stock-edit');
-            // Redirect to main site owner mode edit for full editing
-            window.location.href = '/?owner=1#edit-' + id;
+            adminFetch('/api/catalog').then(function (res) {
+              if (res.ok) {
+                var row = (res.d.rows || []).find(function (r) { return String(r.id) === String(id); });
+                if (row) enterEditMode(row);
+                else setStatus(publishStatus, 'Could not load fabric.', 'err');
+              }
+            });
+          });
+        });
+        // Reorder buttons
+        stockList.querySelectorAll('[data-stock-move]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var id = btn.getAttribute('data-stock-move');
+            var dir = btn.getAttribute('data-dir');
+            adminFetch('/api/catalog').then(function (res) {
+              if (!res.ok) return;
+              var rows = res.d.rows || [];
+              var idx = rows.findIndex(function (r) { return String(r.id) === String(id); });
+              if (idx < 0) return;
+              var newIdx = dir === 'up' ? idx - 1 : idx + 1;
+              if (newIdx < 0 || newIdx >= rows.length) return;
+              var tmp = rows[idx]; rows[idx] = rows[newIdx]; rows[newIdx] = tmp;
+              var order = rows.map(function (r) { return r.id; });
+              adminFetch('/api/admin/catalog/reorder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order: order }),
+              }).then(function (r2) {
+                if (r2.ok) { setStatus(publishStatus, 'Order updated!', 'ok'); loadStockList(); }
+              });
+            });
           });
         });
       })
@@ -435,6 +531,8 @@
   if (token) {
     loginGate.hidden = true;
     stockMain.hidden = false;
+    // Initialize 4 empty model slots
+    for (var _i = 0; _i < 4; _i++) addModelSlot('', '', '');
     loadStockList();
   }
 })();
