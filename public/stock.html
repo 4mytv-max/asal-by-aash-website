@@ -27,6 +27,10 @@
     .stock-preview img { width: 120px; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid #f3dfe7; }
     .stock-models { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .stock-models .stock-preview img { width: 90px; height: 90px; }
+    .stock-add-btn { margin-top: 12px; padding: 10px 20px; border: 2px dashed #d4a0b0; background: #fff; color: #a0506a; border-radius: 10px; font-size: 14px; cursor: pointer; }
+    .stock-add-btn:hover { background: #fdf0f4; }
+    .model-slot { position: relative; }
+    .model-remove { position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: #c0392b; color: #fff; border: none; font-size: 14px; cursor: pointer; line-height: 1; }
     .stock-note { font-size: 13px; color: #715d69; background: #fff9fc; border: 1px dashed #e8cfd8; border-radius: 10px; padding: 10px 12px; margin: 4px 0 16px; }
     .stock-btn { display: inline-block; border: none; cursor: pointer; font-family: Manrope, sans-serif; font-weight: 700; font-size: 15px; border-radius: 10px; padding: 12px 20px; }
     .stock-btn-primary { background: #321028; color: #fff; }
@@ -87,7 +91,7 @@
         </div>
 
         <div class="stock-field">
-          <label>3. Model photos (optional — 4)</label>
+          <label>3. Model photos (optional — as many as you want)</label>
           <div class="stock-models">
             <div>
               <input type="file" class="model-photo" data-i="0" accept="image/*" />
@@ -106,6 +110,7 @@
               <div class="stock-preview" id="model-preview-3"><img alt="Model 4 preview" /></div>
             </div>
           </div>
+          <button type="button" id="add-model-btn" class="stock-add-btn">+ Add More Photos</button>
         </div>
 
         <p class="stock-note">Model photos ഇല്ലെങ്കിൽ Muse-നോട് chat-ൽ പറയൂ — generate ചെയ്ത് തരും ✨</p>
