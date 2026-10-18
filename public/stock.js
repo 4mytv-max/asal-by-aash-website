@@ -216,6 +216,10 @@
       nameInput.focus();
       return;
     }
+    var modelCount = document.querySelectorAll('.model-photo').length;
+    var filledModels = 0;
+    document.querySelectorAll('.model-photo').forEach(function (i) { if (i.files[0]) filledModels++; });
+    if (!confirm('Publish "' + name + '" to the website?\n\nFabric photo: 1\nModel photos: ' + filledModels + '\n\nThis will be visible to customers.')) return;
     publishBtn.disabled = true;
     setStatus(publishStatus, 'Publishing…');
 
