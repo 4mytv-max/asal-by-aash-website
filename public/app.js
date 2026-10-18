@@ -150,6 +150,8 @@
         '</div>';
       if (isOwner) {
         html += '<div class="collection-owner-actions">' +
+          '<button type="button" class="owner-move-btn" data-move-row="' + row.id + '" data-dir="-1" title="Move up">↑</button>' +
+          '<button type="button" class="owner-move-btn" data-move-row="' + row.id + '" data-dir="1" title="Move down">↓</button>' +
           '<button type="button" class="owner-edit-btn" data-edit-row="' + row.id + '">' +
           '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17l-1 3Z"/><path d="m13.5 6.5 3 3"/></svg> Edit</button>' +
           '<button type="button" class="owner-delete-btn" data-delete-row="' + row.id + '">' +
@@ -505,6 +507,31 @@
         openRowEditModal(Number(btn.getAttribute('data-edit-row')));
       });
     });
+    document.querySelectorAll('[data-move-row]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = Number(btn.getAttribute('data-move-row'));
+        var dir = Number(btn.getAttribute('data-dir'));
+        moveRow(id, dir);
+      });
+    });
+    function moveRow(id, dir) {
+      var rows = Array.prototype.slice.call(document.querySelectorAll('.collection'));
+      var ids = rows.map(function (el) {
+        var editBtn = el.querySelector('[data-edit-row]');
+        return editBtn ? Number(editBtn.getAttribute('data-edit-row')) : null;
+      }).filter(function (x) { return x !== null; });
+      var idx = ids.indexOf(id);
+      var nidx = idx + dir;
+      if (idx < 0 || nidx < 0 || nidx >= ids.length) return;
+      var tmp = ids[idx]; ids[idx] = ids[nidx]; ids[nidx] = tmp;
+      adminFetch('/api/admin/catalog/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: ids }),
+      }).then(function (res) {
+        if (res.ok) loadCatalog();
+      });
+    }
     document.querySelectorAll('[data-delete-row]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var id = Number(btn.getAttribute('data-delete-row'));
