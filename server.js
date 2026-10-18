@@ -291,7 +291,7 @@ app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 // so they survive Render redeploys (Render's disk is ephemeral).
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (/^image\//.test(file.mimetype)) cb(null, true);
     else cb(new Error('Only images allowed'));
