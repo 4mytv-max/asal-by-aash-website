@@ -1,5 +1,4 @@
 const express = require('express');
-const { DatabaseSync } = require('node:sqlite');
 const multer = require('multer');
 const path = require('path');
 
@@ -11,14 +10,78 @@ const PORT = process.env.PORT || 3000;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'asal2026';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
-// --- Database ---
-const dbPath = path.join(__dirname, 'asal.db');
-const db = new DatabaseSync(dbPath);
-db.exec('PRAGMA journal_mode = WAL;');
+// --- Database: Turso (permanent) with local SQLite fallback for dev ---
+// On Render, set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN env vars.
+// Without them the app falls back to a local asal.db file (dev only —
+// Render's disk is ephemeral, so local data is lost on redeploy).
+const TURSO_URL = process.env.TURSO_DATABASE_URL || '';
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || '';
+const USE_TURSO = Boolean(TURSO_URL && TURSO_TOKEN);
 
-// Schema (matches original artifact)
-db.exec(`
-  CREATE TABLE IF NOT EXISTS fabric_rows (
+let db;
+if (USE_TURSO) {
+  const { createClient } = require('@libsql/client');
+  db = createClient({ url: TURSO_URL, authToken: TURSO_TOKEN });
+  console.log('Using Turso database (permanent storage)');
+} else {
+  const { DatabaseSync } = require('node:sqlite');
+  const localDb = new DatabaseSync(path.join(__dirname, 'asal.db'));
+  localDb.exec('PRAGMA journal_mode = WAL;');
+  // Wrap sync node:sqlite in the async @libsql/client shape:
+  //   execute(string | {sql, args}) -> { rows, rowsAffected, lastInsertRowid }
+  //   batch([...]) -> array of execute results
+  db = {
+    async execute(sqlOrObj) {
+      const sql = typeof sqlOrObj === 'string' ? sqlOrObj : sqlOrObj.sql;
+      const args = typeof sqlOrObj === 'string' ? [] : (sqlOrObj.args || []);
+      if (/^\s*(SELECT|PRAGMA|WITH|EXPLAIN|VALUES)\b/i.test(sql)) {
+        return { rows: localDb.prepare(sql).all(...args), rowsAffected: 0, lastInsertRowid: 0 };
+      }
+      const info = localDb.prepare(sql).run(...args);
+      return { rows: [], rowsAffected: info.changes, lastInsertRowid: Number(info.lastInsertRowid) };
+    },
+    async batch(stmts) {
+      const out = [];
+      for (const s of stmts) out.push(await this.execute(s));
+      return out;
+    },
+  };
+  console.log('Using local SQLite (dev only — data will NOT persist on Render redeploys)');
+}
+
+// Async wrapper for Express 4 route handlers (forwards rejections to the error middleware)
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// libsql may return BigInts for integer columns; normalize for JSON responses
+const num = (v) => (typeof v === 'bigint' ? Number(v) : v);
+
+// Run statements transactionally on both backends.
+// (Turso does not hold transactions across separate HTTP execute() calls,
+// so use db.batch() there; local SQLite uses BEGIN/COMMIT.)
+async function execBatch(stmts) {
+  const norm = stmts.map((s) => {
+    if (typeof s === 'string') return { sql: s, args: [] };
+    if (Array.isArray(s)) return { sql: s[0], args: s.slice(1) };
+    return { sql: s.sql, args: s.args || [] };
+  });
+  if (!norm.length) return;
+  if (USE_TURSO) {
+    await db.batch(norm);
+  } else {
+    await db.execute('BEGIN');
+    try {
+      for (const s of norm) await db.execute(s);
+      await db.execute('COMMIT');
+    } catch (e) {
+      try { await db.execute('ROLLBACK'); } catch (_) { /* ignore */ }
+      throw e;
+    }
+  }
+}
+
+// --- Schema ---
+const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS fabric_rows (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fabric_name TEXT NOT NULL,
     fabric_image_key TEXT,
@@ -36,27 +99,34 @@ db.exec(`
     model_4_price TEXT,
     sample_asset TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-  );
-  CREATE TABLE IF NOT EXISTS site_ratings (
+  )`,
+  `CREATE TABLE IF NOT EXISTS site_ratings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id TEXT NOT NULL,
     stars INTEGER NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
     UNIQUE(device_id)
-  );
-  CREATE TABLE IF NOT EXISTS site_content (
+  )`,
+  `CREATE TABLE IF NOT EXISTS site_content (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS visits (
+  )`,
+  `CREATE TABLE IF NOT EXISTS visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ip_hash TEXT,
     user_agent TEXT,
     visited_at INTEGER NOT NULL,
     path TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_visits_at ON visits (visited_at);
-`);
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_visits_at ON visits (visited_at)`,
+  // Uploaded images live IN the database so they survive Render redeploys.
+  `CREATE TABLE IF NOT EXISTS images (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    mime TEXT NOT NULL DEFAULT 'image/jpeg',
+    created_at INTEGER NOT NULL
+  )`,
+];
 
 // --- Seed data ---
 const SITE_CONTENT_SEED = {
@@ -134,68 +204,64 @@ const CATALOG_SEED = [
 const MODEL_NAMES = ['Coat Collar Kurti', 'Frock Nighty', 'V-Neck Short Kurti', 'Nighty'];
 const MODEL_SLUGS = ['coat-collar-kurti', 'frock-nighty', 'v-neck-short-kurti', 'nighty'];
 
-function seedIfEmpty() {
-  const contentCount = db.prepare('SELECT COUNT(*) AS c FROM site_content').get().c;
+async function seedIfEmpty() {
+  const contentCount = num((await db.execute('SELECT COUNT(*) AS c FROM site_content')).rows[0].c);
   if (contentCount === 0) {
-    const ins = db.prepare('INSERT INTO site_content (key, value) VALUES (?, ?)');
-    db.exec('BEGIN');
-    try {
-      for (const [k, v] of Object.entries(SITE_CONTENT_SEED)) ins.run(k, v);
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    await execBatch(Object.entries(SITE_CONTENT_SEED).map(([k, v]) => ({
+      sql: 'INSERT INTO site_content (key, value) VALUES (?, ?)', args: [k, v],
+    })));
     console.log('Seeded site_content');
   }
-  const rowCount = db.prepare('SELECT COUNT(*) AS c FROM fabric_rows').get().c;
+  const rowCount = num((await db.execute('SELECT COUNT(*) AS c FROM fabric_rows')).rows[0].c);
   if (rowCount === 0) {
-    const ins = db.prepare(`INSERT INTO fabric_rows
-      (fabric_name, fabric_image_key, model_1_name, model_1_image_key, model_2_name, model_2_image_key,
-       model_3_name, model_3_image_key, model_4_name, model_4_image_key)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    db.exec('BEGIN');
-    try {
-      for (const r of CATALOG_SEED) {
-        const ext = r.ext || 'jpg';
-        ins.run(
+    await execBatch(CATALOG_SEED.map((r) => {
+      const ext = r.ext || 'jpg';
+      return {
+        sql: `INSERT INTO fabric_rows
+          (fabric_name, fabric_image_key, model_1_name, model_1_image_key, model_2_name, model_2_image_key,
+           model_3_name, model_3_image_key, model_4_name, model_4_image_key)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
           r.fabric,
           `/images/catalog/${r.slug}-fabric.${ext}`,
           MODEL_NAMES[0], `/images/catalog/${r.slug}-${MODEL_SLUGS[0]}.${ext}`,
           MODEL_NAMES[1], `/images/catalog/${r.slug}-${MODEL_SLUGS[1]}.${ext}`,
           MODEL_NAMES[2], `/images/catalog/${r.slug}-${MODEL_SLUGS[2]}.${ext}`,
-          MODEL_NAMES[3], `/images/catalog/${r.slug}-${MODEL_SLUGS[3]}.${ext}`
-        );
-      }
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+          MODEL_NAMES[3], `/images/catalog/${r.slug}-${MODEL_SLUGS[3]}.${ext}`,
+        ],
+      };
+    }));
     console.log('Seeded fabric_rows');
   }
 }
-seedIfEmpty();
 
 // --- Migration: unlimited model photos + row ordering ---
 // One-time backfill, keyed on models_json IS NULL (idempotent across restarts).
 // Rows that already have models_json are never touched again, so a user-defined
 // sort_order is never clobbered by a later restart.
-{
-  const cols = db.prepare('PRAGMA table_info(fabric_rows)').all().map(c => c.name);
-  if (!cols.includes('sort_order')) db.exec('ALTER TABLE fabric_rows ADD COLUMN sort_order INTEGER DEFAULT 0');
-  if (!cols.includes('models_json')) db.exec('ALTER TABLE fabric_rows ADD COLUMN models_json TEXT');
-  const legacyRows = db.prepare('SELECT * FROM fabric_rows WHERE models_json IS NULL').all();
+async function migrateModelsJson() {
+  const cols = (await db.execute('PRAGMA table_info(fabric_rows)')).rows.map((c) => c.name);
+  if (!cols.includes('sort_order')) await db.execute('ALTER TABLE fabric_rows ADD COLUMN sort_order INTEGER DEFAULT 0');
+  if (!cols.includes('models_json')) await db.execute('ALTER TABLE fabric_rows ADD COLUMN models_json TEXT');
+  const legacyRows = (await db.execute('SELECT * FROM fabric_rows WHERE models_json IS NULL')).rows;
   if (legacyRows.length) {
-    const up = db.prepare('UPDATE fabric_rows SET sort_order = ?, models_json = ? WHERE id = ?');
-    db.exec('BEGIN');
-    try {
-      for (const r of legacyRows) {
-        const models = [];
-        for (let i = 1; i <= 4; i++) {
-          const name = r[`model_${i}_name`];
-          if (name) models.push({ name, image_key: r[`model_${i}_image_key`] || '', price: r[`model_${i}_price`] || '' });
-        }
-        up.run(r.id, JSON.stringify(models), r.id); // sort_order = id preserves original id order
+    await execBatch(legacyRows.map((r) => {
+      const models = [];
+      for (let i = 1; i <= 4; i++) {
+        const name = r[`model_${i}_name`];
+        if (name) models.push({ name, image_key: r[`model_${i}_image_key`] || '', price: r[`model_${i}_price`] || '' });
       }
-      db.exec('COMMIT');
-      console.log(`Migrated ${legacyRows.length} fabric row(s) to models_json + sort_order`);
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+      // sort_order = id preserves original id order
+      return { sql: 'UPDATE fabric_rows SET sort_order = ?, models_json = ? WHERE id = ?', args: [num(r.id), JSON.stringify(models), num(r.id)] };
+    }));
+    console.log(`Migrated ${legacyRows.length} fabric row(s) to models_json + sort_order`);
   }
+}
+
+async function initDb() {
+  for (const sql of SCHEMA_STATEMENTS) await db.execute(sql);
+  await seedIfEmpty();
+  await migrateModelsJson();
 }
 
 // --- Middleware ---
@@ -204,14 +270,16 @@ app.use(express.json({ limit: '2mb' }));
 
 // Visitor analytics: log page views of the homepage only (no API, no static assets).
 // Privacy: stores only a SHA256 hash (first 16 chars) of the IP, never the raw IP. No cookies.
-const logVisit = db.prepare('INSERT INTO visits (ip_hash, user_agent, visited_at, path) VALUES (?, ?, ?, ?)');
 app.use((req, res, next) => {
   if (req.method === 'GET' && req.path === '/') {
     try {
       const ip = req.ip || '';
       const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
       const ua = (req.get('user-agent') || '').slice(0, 256);
-      logVisit.run(ipHash, ua, Date.now(), req.path);
+      db.execute({
+        sql: 'INSERT INTO visits (ip_hash, user_agent, visited_at, path) VALUES (?, ?, ?, ?)',
+        args: [ipHash, ua, Date.now(), req.path],
+      }).catch(() => { /* analytics must never break the page */ });
     } catch (e) { /* analytics must never break the page */ }
   }
   next();
@@ -219,24 +287,18 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 
-// Uploads
-const uploadDir = path.join(__dirname, 'public', 'images', 'uploads');
-fs.mkdirSync(uploadDir, { recursive: true });
-const storage = multer.diskStorage({
-  destination: uploadDir,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    cb(null, Date.now() + '-' + crypto.randomBytes(6).toString('hex') + ext);
-  },
-});
+// Uploads: files are kept in memory and stored IN the database (images table),
+// so they survive Render redeploys (Render's disk is ephemeral).
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (/^image\//.test(file.mimetype)) cb(null, true);
     else cb(new Error('Only images allowed'));
   },
 });
+// Legacy disk-upload dir (local dev only; kept for the suggest-name fallback below)
+const uploadDir = path.join(__dirname, 'public', 'images', 'uploads');
 
 // --- Admin auth (simple token) ---
 const adminTokens = new Set();
@@ -245,6 +307,9 @@ function requireAdmin(req, res, next) {
   if (token && adminTokens.has(token)) return next();
   res.status(401).json({ error: 'Unauthorized' });
 }
+
+// Visitor stats use IST day boundaries — the business is India-based
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
 
 // --- Public API ---
 function rowModels(r) {
@@ -267,7 +332,7 @@ function rowModels(r) {
 function rowToJson(r) {
   const models = rowModels(r);
   return {
-    id: r.id,
+    id: num(r.id),
     fabric_name: r.fabric_name,
     fabric_image_url: r.fabric_image_key,
     model_names: models.map(m => m.name),
@@ -276,42 +341,43 @@ function rowToJson(r) {
   };
 }
 
-app.get('/api/catalog', (req, res) => {
-  const rows = db.prepare('SELECT * FROM fabric_rows ORDER BY sort_order ASC, id ASC').all();
+app.get('/api/catalog', ah(async (req, res) => {
+  const rows = (await db.execute('SELECT * FROM fabric_rows ORDER BY sort_order ASC, id ASC')).rows;
   res.json({ rows: rows.map(rowToJson) });
-});
+}));
 
-app.get('/api/content', (req, res) => {
-  const rows = db.prepare('SELECT key, value FROM site_content').all();
+app.get('/api/content', ah(async (req, res) => {
+  const rows = (await db.execute('SELECT key, value FROM site_content')).rows;
   const content = {};
   for (const r of rows) content[r.key] = r.value;
   res.json({ content });
-});
+}));
 
-app.get('/api/rating', (req, res) => {
-  const agg = db.prepare('SELECT COUNT(*) AS count, AVG(stars) AS avg FROM site_ratings').get();
+app.get('/api/rating', ah(async (req, res) => {
+  const agg = (await db.execute('SELECT COUNT(*) AS count, AVG(stars) AS avg FROM site_ratings')).rows[0];
+  const count = num(agg.count);
   res.json({
-    average: agg.count ? Math.round(agg.avg * 10) / 10 : 0,
-    count: agg.count,
+    average: count ? Math.round(num(agg.avg) * 10) / 10 : 0,
+    count,
   });
-});
+}));
 
-app.post('/api/rating', (req, res) => {
+app.post('/api/rating', ah(async (req, res) => {
   const { stars, deviceId } = req.body || {};
   if (!Number.isInteger(stars) || stars < 1 || stars > 5)
     return res.status(400).json({ error: 'Stars must be 1-5' });
   if (!deviceId || typeof deviceId !== 'string' || deviceId.length > 128)
     return res.status(400).json({ error: 'deviceId required' });
   try {
-    db.prepare('INSERT INTO site_ratings (device_id, stars) VALUES (?, ?)').run(deviceId, stars);
+    await db.execute({ sql: 'INSERT INTO site_ratings (device_id, stars) VALUES (?, ?)', args: [deviceId, stars] });
   } catch (e) {
     if (e.message && e.message.includes('UNIQUE constraint failed'))
       return res.status(409).json({ error: 'Already rated on this device' });
     throw e;
   }
-  const agg = db.prepare('SELECT COUNT(*) AS count, AVG(stars) AS avg FROM site_ratings').get();
-  res.json({ average: Math.round(agg.avg * 10) / 10, count: agg.count });
-});
+  const agg = (await db.execute('SELECT COUNT(*) AS count, AVG(stars) AS avg FROM site_ratings')).rows[0];
+  res.json({ average: Math.round(num(agg.avg) * 10) / 10, count: num(agg.count) });
+}));
 
 // --- Admin API ---
 app.post('/api/admin/login', (req, res) => {
@@ -325,21 +391,19 @@ app.post('/api/admin/login', (req, res) => {
   }
 });
 
-// Visitor stats (IST day boundaries — the business is India-based)
-const IST_OFFSET_MS = 5.5 * 3600 * 1000;
-app.get('/api/admin/stats', requireAdmin, (req, res) => {
+app.get('/api/admin/stats', requireAdmin, ah(async (req, res) => {
   const now = Date.now();
   const istMidnightUtc = Math.floor((now + IST_OFFSET_MS) / 86400000) * 86400000 - IST_OFFSET_MS;
   const thirtyDaysAgo = now - 30 * 86400000;
 
-  const total = db.prepare('SELECT COUNT(*) AS c FROM visits').get().c;
-  const today = db.prepare('SELECT COUNT(*) AS c FROM visits WHERE visited_at >= ?').get(istMidnightUtc).c;
-  const unique = db.prepare('SELECT COUNT(DISTINCT ip_hash) AS c FROM visits').get().c;
-  const byDay = db.prepare(`
-    SELECT date(visited_at / 1000, 'unixepoch', '+330 minutes') AS date, COUNT(*) AS count
-    FROM visits WHERE visited_at >= ?
-    GROUP BY date ORDER BY date ASC
-  `).all(thirtyDaysAgo);
+  const total = num((await db.execute('SELECT COUNT(*) AS c FROM visits')).rows[0].c);
+  const today = num((await db.execute({ sql: 'SELECT COUNT(*) AS c FROM visits WHERE visited_at >= ?', args: [istMidnightUtc] })).rows[0].c);
+  const unique = num((await db.execute('SELECT COUNT(DISTINCT ip_hash) AS c FROM visits')).rows[0].c);
+  const byDay = (await db.execute({
+    sql: `SELECT date(visited_at / 1000, 'unixepoch', '+330 minutes') AS date, COUNT(*) AS count
+      FROM visits WHERE visited_at >= ? GROUP BY date ORDER BY date ASC`,
+    args: [thirtyDaysAgo],
+  })).rows.map((r) => ({ date: r.date, count: num(r.count) }));
 
   res.json({
     total_visits: total,
@@ -347,12 +411,12 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
     unique_visitors: unique,
     visits_by_day: byDay,
   });
-});
+}));
 
-app.get('/api/admin/catalog', requireAdmin, (req, res) => {
-  const rows = db.prepare('SELECT * FROM fabric_rows ORDER BY sort_order ASC, id ASC').all();
+app.get('/api/admin/catalog', requireAdmin, ah(async (req, res) => {
+  const rows = (await db.execute('SELECT * FROM fabric_rows ORDER BY sort_order ASC, id ASC')).rows;
   res.json({ rows: rows.map(rowToJson) });
-});
+}));
 
 // Build the canonical models array (any length) from the three parallel input arrays.
 function buildModels(namesIn, imgsIn, pricesIn) {
@@ -369,31 +433,33 @@ function buildModels(namesIn, imgsIn, pricesIn) {
   return models;
 }
 
-app.post('/api/admin/catalog', requireAdmin, (req, res) => {
+app.post('/api/admin/catalog', requireAdmin, ah(async (req, res) => {
   const { fabric_name, fabric_image_url, model_names, model_image_urls, model_prices } = req.body || {};
   if (!fabric_name) return res.status(400).json({ error: 'fabric_name required' });
   const models = buildModels(model_names, model_image_urls, model_prices);
   const m = (i) => models[i] || { name: MODEL_NAMES[i] || `Model ${i + 1}`, image_key: '', price: '' };
-  const nextOrder = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS mx FROM fabric_rows').get().mx + 1;
-  const info = db.prepare(`INSERT INTO fabric_rows
-    (fabric_name, fabric_image_key, model_1_name, model_1_image_key, model_1_price,
-     model_2_name, model_2_image_key, model_2_price, model_3_name, model_3_image_key, model_3_price,
-     model_4_name, model_4_image_key, model_4_price, sort_order, models_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(fabric_name, fabric_image_url || '',
+  const nextOrder = num((await db.execute('SELECT COALESCE(MAX(sort_order), 0) AS mx FROM fabric_rows')).rows[0].mx) + 1;
+  const result = await db.execute({
+    sql: `INSERT INTO fabric_rows
+      (fabric_name, fabric_image_key, model_1_name, model_1_image_key, model_1_price,
+       model_2_name, model_2_image_key, model_2_price, model_3_name, model_3_image_key, model_3_price,
+       model_4_name, model_4_image_key, model_4_price, sort_order, models_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [fabric_name, fabric_image_url || '',
       m(0).name, m(0).image_key, m(0).price,
       m(1).name, m(1).image_key, m(1).price,
       m(2).name, m(2).image_key, m(2).price,
       m(3).name, m(3).image_key, m(3).price,
-      nextOrder, JSON.stringify(models));
-  const row = db.prepare('SELECT * FROM fabric_rows WHERE id = ?').get(info.lastInsertRowid);
+      nextOrder, JSON.stringify(models)],
+  });
+  const row = (await db.execute({ sql: 'SELECT * FROM fabric_rows WHERE id = ?', args: [num(result.lastInsertRowid)] })).rows[0];
   res.json({ row: rowToJson(row) });
-});
+}));
 
-app.put('/api/admin/catalog/:id', requireAdmin, (req, res) => {
+app.put('/api/admin/catalog/:id', requireAdmin, ah(async (req, res) => {
   const id = Number(req.params.id);
   const { fabric_name, fabric_image_url, model_names, model_image_urls, model_prices } = req.body || {};
-  const existing = db.prepare('SELECT * FROM fabric_rows WHERE id = ?').get(id);
+  const existing = (await db.execute({ sql: 'SELECT * FROM fabric_rows WHERE id = ?', args: [id] })).rows[0];
   if (!existing) return res.status(404).json({ error: 'Not found' });
   // Fall back to the row's existing full models (never truncate to 4 on a partial edit).
   const cur = rowModels(existing);
@@ -402,21 +468,23 @@ app.put('/api/admin/catalog/:id', requireAdmin, (req, res) => {
   const prices = Array.isArray(model_prices) && model_prices.length ? model_prices : cur.map(m => m.price);
   const models = buildModels(names, imgs, prices);
   const m = (i) => models[i] || { name: MODEL_NAMES[i] || `Model ${i + 1}`, image_key: '', price: '' };
-  db.prepare(`UPDATE fabric_rows SET fabric_name=?, fabric_image_key=?,
-    model_1_name=?, model_1_image_key=?, model_1_price=?,
-    model_2_name=?, model_2_image_key=?, model_2_price=?,
-    model_3_name=?, model_3_image_key=?, model_3_price=?,
-    model_4_name=?, model_4_image_key=?, model_4_price=?,
-    models_json=? WHERE id=?`)
-    .run(fabric_name ?? existing.fabric_name, fabric_image_url ?? existing.fabric_image_key,
+  await db.execute({
+    sql: `UPDATE fabric_rows SET fabric_name=?, fabric_image_key=?,
+      model_1_name=?, model_1_image_key=?, model_1_price=?,
+      model_2_name=?, model_2_image_key=?, model_2_price=?,
+      model_3_name=?, model_3_image_key=?, model_3_price=?,
+      model_4_name=?, model_4_image_key=?, model_4_price=?,
+      models_json=? WHERE id=?`,
+    args: [fabric_name ?? existing.fabric_name, fabric_image_url ?? existing.fabric_image_key,
       m(0).name, m(0).image_key, m(0).price, m(1).name, m(1).image_key, m(1).price,
       m(2).name, m(2).image_key, m(2).price, m(3).name, m(3).image_key, m(3).price,
-      JSON.stringify(models), id);
-  const row = db.prepare('SELECT * FROM fabric_rows WHERE id = ?').get(id);
+      JSON.stringify(models), id],
+  });
+  const row = (await db.execute({ sql: 'SELECT * FROM fabric_rows WHERE id = ?', args: [id] })).rows[0];
   res.json({ row: rowToJson(row) });
-});
+}));
 
-app.post('/api/admin/catalog/reorder', requireAdmin, (req, res) => {
+app.post('/api/admin/catalog/reorder', requireAdmin, ah(async (req, res) => {
   const { order } = req.body || {};
   if (!Array.isArray(order) || !order.length)
     return res.status(400).json({ error: 'order must be a non-empty array of row ids' });
@@ -428,40 +496,53 @@ app.post('/api/admin/catalog/reorder', requireAdmin, (req, res) => {
     seen.add(id); ids.push(id);
   }
   if (!ids.length) return res.status(400).json({ error: 'no valid row ids in order' });
-  const existingIds = new Set(db.prepare('SELECT id FROM fabric_rows').all().map(r => r.id));
-  const up = db.prepare('UPDATE fabric_rows SET sort_order = ? WHERE id = ?');
-  db.exec('BEGIN');
-  try {
-    ids.forEach((id, idx) => { if (existingIds.has(id)) up.run(idx, id); });
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  const existingIds = new Set((await db.execute('SELECT id FROM fabric_rows')).rows.map(r => num(r.id)));
+  const stmts = [];
+  ids.forEach((id, idx) => { if (existingIds.has(id)) stmts.push({ sql: 'UPDATE fabric_rows SET sort_order = ? WHERE id = ?', args: [idx, id] }); });
+  await execBatch(stmts);
   res.json({ ok: true });
-});
+}));
 
-app.delete('/api/admin/catalog/:id', requireAdmin, (req, res) => {
-  const info = db.prepare('DELETE FROM fabric_rows WHERE id = ?').run(Number(req.params.id));
-  res.json({ deleted: info.changes });
-});
+app.delete('/api/admin/catalog/:id', requireAdmin, ah(async (req, res) => {
+  const result = await db.execute({ sql: 'DELETE FROM fabric_rows WHERE id = ?', args: [Number(req.params.id)] });
+  res.json({ deleted: num(result.rowsAffected) });
+}));
 
-app.put('/api/admin/content', requireAdmin, (req, res) => {
+app.put('/api/admin/content', requireAdmin, ah(async (req, res) => {
   const { content } = req.body || {};
   if (!content || typeof content !== 'object') return res.status(400).json({ error: 'content object required' });
-  const up = db.prepare('INSERT INTO site_content (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
-  db.exec('BEGIN');
-  try {
-    for (const [k, v] of Object.entries(content)) up.run(k, String(v ?? ''));
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  await execBatch(Object.entries(content).map(([k, v]) => ({
+    sql: 'INSERT INTO site_content (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+    args: [k, String(v ?? '')],
+  })));
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/admin/upload', requireAdmin, upload.single('image'), (req, res) => {
+// Upload an image: stored IN the database (images table) so it survives redeploys.
+// Returns { url: '/api/img/<id>' } — the frontend stores this URL in the catalog row.
+app.post('/api/admin/upload', requireAdmin, upload.single('image'), ah(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
-  res.json({ url: '/images/uploads/' + req.file.filename });
-});
+  const id = 'img_' + Date.now().toString(36) + '_' + crypto.randomBytes(6).toString('hex');
+  const mime = req.file.mimetype || 'image/jpeg';
+  await db.execute({
+    sql: 'INSERT INTO images (id, data, mime, created_at) VALUES (?, ?, ?, ?)',
+    args: [id, req.file.buffer.toString('base64'), mime, Date.now()],
+  });
+  res.json({ url: '/api/img/' + id });
+}));
+
+// Serve an uploaded image from the database.
+app.get('/api/img/:id', ah(async (req, res) => {
+  const id = String(req.params.id || '').slice(0, 128);
+  const row = (await db.execute({ sql: 'SELECT data, mime FROM images WHERE id = ?', args: [id] })).rows[0];
+  if (!row || !row.data) return res.status(404).end();
+  res.set('Content-Type', row.mime || 'image/jpeg');
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.send(Buffer.from(row.data, 'base64'));
+}));
 
 // AI fabric-name suggestion (Google Gemini). Never logs or exposes the API key.
-app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
+app.post('/api/admin/suggest-name', requireAdmin, ah(async (req, res) => {
   try {
     if (!GEMINI_API_KEY) {
       return res.status(503).json({ error: 'AI name suggestion is not set up yet. Add GEMINI_API_KEY in Render → Environment.' });
@@ -474,7 +555,16 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
       // Client sent a small preview (original file untouched on disk)
       try { buf = Buffer.from(image_preview, 'base64'); }
       catch (e) { return res.status(400).json({ error: 'Invalid preview data.' }); }
+    } else if (image_url && typeof image_url === 'string' && image_url.startsWith('/api/img/')) {
+      // Image stored in the database
+      const imgId = image_url.slice('/api/img/'.length).split(/[/?#]/)[0].slice(0, 128);
+      const imgRow = (await db.execute({ sql: 'SELECT data, mime FROM images WHERE id = ?', args: [imgId] })).rows[0];
+      if (!imgRow || !imgRow.data) return res.status(404).json({ error: 'Image not found. Please upload again.' });
+      buf = Buffer.from(imgRow.data, 'base64');
+      mime = imgRow.mime || 'image/jpeg';
+      ext = mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg';
     } else if (image_url && typeof image_url === 'string' && image_url.startsWith('/images/uploads/')) {
+      // Legacy disk uploads (local dev only — Render's disk is ephemeral)
       const resolved = path.resolve(path.join(__dirname, 'public', image_url));
       const uploadsRoot = path.resolve(uploadDir);
       if (!resolved.startsWith(uploadsRoot + path.sep)) {
@@ -483,13 +573,13 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
       try { buf = fs.readFileSync(resolved); }
       catch (e) { return res.status(404).json({ error: 'Image file not found. Please upload again.' }); }
       ext = path.extname(resolved).toLowerCase();
+      mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
     } else {
       return res.status(400).json({ error: 'Upload a fabric photo first.' });
     }
     if (buf.length > 12 * 1024 * 1024) {
       return res.status(400).json({ error: 'Image is too large for AI analysis.' });
     }
-    mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
     const prompt = "This is a fabric print photo for a women's clothing brand. Suggest a short, elegant fabric name in the format '[Color] [Color] [Pattern] Print' (e.g., 'Magenta Golden Floral Print'). Return ONLY the name, nothing else.";
 
     const controller = new AbortController();
@@ -566,7 +656,7 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
     console.error('suggest-name failed:', e && e.message ? e.message : e);
     res.status(500).json({ error: 'Could not suggest a name. Please try again.' });
   }
-});
+}));
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ ok: true }));
@@ -581,4 +671,14 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`ASAL by Aash listening on port ${PORT}`));
+// JSON error handler (must be last — catches async errors and multer errors)
+app.use((err, req, res, next) => {
+  console.error('Request error:', err && err.message ? err.message : err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 400).json({ error: err.message || 'Request failed' });
+});
+
+// Start only after the database (schema + seed + migration) is ready
+initDb()
+  .then(() => app.listen(PORT, () => console.log(`ASAL by Aash listening on port ${PORT}`)))
+  .catch((e) => { console.error('Database init failed:', e); process.exit(1); });
