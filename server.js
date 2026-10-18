@@ -377,28 +377,30 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
     if (!GEMINI_API_KEY) {
       return res.status(503).json({ error: 'AI name suggestion is not set up yet. Add GEMINI_API_KEY in Render → Environment.' });
     }
-    const { image_url } = req.body || {};
-    if (!image_url || typeof image_url !== 'string' || !image_url.startsWith('/images/uploads/')) {
+    const { image_url, image_preview } = req.body || {};
+    let buf;
+    let mime = 'image/jpeg';
+    let ext = '.jpg';
+    if (image_preview && typeof image_preview === 'string' && image_preview.length > 100) {
+      // Client sent a small preview (original file untouched on disk)
+      try { buf = Buffer.from(image_preview, 'base64'); }
+      catch (e) { return res.status(400).json({ error: 'Invalid preview data.' }); }
+    } else if (image_url && typeof image_url === 'string' && image_url.startsWith('/images/uploads/')) {
+      const resolved = path.resolve(path.join(__dirname, 'public', image_url));
+      const uploadsRoot = path.resolve(uploadDir);
+      if (!resolved.startsWith(uploadsRoot + path.sep)) {
+        return res.status(400).json({ error: 'Invalid image path.' });
+      }
+      try { buf = fs.readFileSync(resolved); }
+      catch (e) { return res.status(404).json({ error: 'Image file not found. Please upload again.' }); }
+      ext = path.extname(resolved).toLowerCase();
+    } else {
       return res.status(400).json({ error: 'Upload a fabric photo first.' });
     }
-    // Resolve inside the uploads dir only (path-traversal guard)
-    const resolved = path.resolve(path.join(__dirname, 'public', image_url));
-    const uploadsRoot = path.resolve(uploadDir);
-    if (!resolved.startsWith(uploadsRoot + path.sep)) {
-      return res.status(400).json({ error: 'Invalid image path.' });
-    }
-    let buf;
-    try {
-      buf = fs.readFileSync(resolved);
-    } catch (e) {
-      return res.status(404).json({ error: 'Image file not found. Please upload again.' });
-    }
-    // Allow larger images (up to 12MB) - no resizing, original quality
     if (buf.length > 12 * 1024 * 1024) {
       return res.status(400).json({ error: 'Image is too large for AI analysis.' });
     }
-    const ext = path.extname(resolved).toLowerCase();
-    const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
     const prompt = "This is a fabric print photo for a women's clothing brand. Suggest a short, elegant fabric name in the format '[Color] [Color] [Pattern] Print' (e.g., 'Magenta Golden Floral Print'). Return ONLY the name, nothing else.";
 
     const controller = new AbortController();
