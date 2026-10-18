@@ -484,23 +484,35 @@
           btn.addEventListener('click', function () {
             var id = btn.getAttribute('data-stock-move');
             var dir = btn.getAttribute('data-dir');
+            btn.disabled = true;
+            setStatus(publishStatus, 'Moving…', 'ok');
             adminFetch('/api/catalog').then(function (res) {
-              if (!res.ok) return;
+              if (!res.ok) { btn.disabled = false; return; }
               var rows = res.d.rows || [];
               var idx = rows.findIndex(function (r) { return String(r.id) === String(id); });
-              if (idx < 0) return;
+              if (idx < 0) { btn.disabled = false; return; }
               var newIdx = dir === 'up' ? idx - 1 : idx + 1;
-              if (newIdx < 0 || newIdx >= rows.length) return;
+              if (newIdx < 0 || newIdx >= rows.length) {
+                setStatus(publishStatus, dir === 'up' ? 'Already at the top!' : 'Already at the bottom!', 'ok');
+                btn.disabled = false;
+                return;
+              }
               var tmp = rows[idx]; rows[idx] = rows[newIdx]; rows[newIdx] = tmp;
               var order = rows.map(function (r) { return r.id; });
-              adminFetch('/api/admin/catalog/reorder', {
+              return adminFetch('/api/admin/catalog/reorder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ order: order }),
               }).then(function (r2) {
-                if (r2.ok) { setStatus(publishStatus, 'Order updated!', 'ok'); loadStockList(); }
+                btn.disabled = false;
+                if (r2.ok) {
+                  setStatus(publishStatus, '✅ Moved ' + (dir === 'up' ? 'up' : 'down') + '!', 'ok');
+                  loadStockList();
+                } else {
+                  setStatus(publishStatus, 'Move failed: ' + ((r2.d && r2.d.error) || 'unknown'), 'err');
+                }
               });
-            });
+            }).catch(function () { btn.disabled = false; });
           });
         });
       })
