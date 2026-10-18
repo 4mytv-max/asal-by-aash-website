@@ -284,41 +284,53 @@
       applyZoom(zoomState.scale > 1.01 ? 1 : 2, 0, 0);
     });
 
-    // Pinch + pan
+    // Pinch + pan (touch events for reliable mobile pinch)
+    var touchStartDist = 0, touchStartScale = 1;
+    var touchDrag = null;
+    lightboxStage.addEventListener('touchstart', function (e) {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchStartDist = Math.max(1, Math.hypot(dx, dy));
+        touchStartScale = zoomState.scale;
+        touchDrag = null;
+      } else if (e.touches.length === 1 && zoomState.scale > 1.01) {
+        touchDrag = { x: e.touches[0].clientX - zoomState.x, y: e.touches[0].clientY - zoomState.y };
+      }
+    }, { passive: false });
+    lightboxStage.addEventListener('touchmove', function (e) {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        var dist = Math.max(1, Math.hypot(dx, dy));
+        applyZoom(touchStartScale * (dist / touchStartDist), zoomState.x, zoomState.y);
+      } else if (e.touches.length === 1 && touchDrag) {
+        e.preventDefault();
+        applyZoom(zoomState.scale, e.touches[0].clientX - touchDrag.x, e.touches[0].clientY - touchDrag.y);
+      }
+    }, { passive: false });
+    lightboxStage.addEventListener('touchend', function (e) {
+      if (e.touches.length < 2) touchStartDist = 0;
+      if (e.touches.length === 0) touchDrag = null;
+    });
+    // Mouse drag fallback (desktop)
     lightboxStage.addEventListener('pointerdown', function (e) {
-      activePointers[e.pointerId] = { x: e.clientX, y: e.clientY };
-      lightboxStage.setPointerCapture(e.pointerId);
-      var keys = Object.keys(activePointers);
-      if (keys.length === 2) {
-        var p1 = activePointers[keys[0]], p2 = activePointers[keys[1]];
-        pinchStart = {
-          distance: Math.max(1, Math.hypot(p2.x - p1.x, p2.y - p1.y)),
-          scale: zoomState.scale,
-        };
-        dragStart = null;
-      } else if (keys.length === 1 && zoomState.scale > 1.01) {
+      if (e.pointerType === 'mouse' && zoomState.scale > 1.01) {
         dragStart = { x: e.clientX - zoomState.x, y: e.clientY - zoomState.y };
+        activePointers[e.pointerId] = true;
       }
     });
     lightboxStage.addEventListener('pointermove', function (e) {
-      if (!activePointers[e.pointerId]) return;
-      activePointers[e.pointerId] = { x: e.clientX, y: e.clientY };
-      var keys = Object.keys(activePointers);
-      if (keys.length === 2 && pinchStart) {
-        var p1 = activePointers[keys[0]], p2 = activePointers[keys[1]];
-        var dist = Math.max(1, Math.hypot(p2.x - p1.x, p2.y - p1.y));
-        applyZoom(pinchStart.scale * (dist / pinchStart.distance), zoomState.x, zoomState.y);
-      } else if (keys.length === 1 && dragStart) {
+      if (e.pointerType === 'mouse' && activePointers[e.pointerId] && dragStart) {
         applyZoom(zoomState.scale, e.clientX - dragStart.x, e.clientY - dragStart.y);
       }
     });
-    function endPointer(e) {
+    lightboxStage.addEventListener('pointerup', function (e) {
       delete activePointers[e.pointerId];
-      if (Object.keys(activePointers).length < 2) pinchStart = null;
-      if (Object.keys(activePointers).length === 0) dragStart = null;
-    }
-    lightboxStage.addEventListener('pointerup', endPointer);
-    lightboxStage.addEventListener('pointercancel', endPointer);
+      dragStart = null;
+    });
   }
 
   // ---------- Rating ----------
