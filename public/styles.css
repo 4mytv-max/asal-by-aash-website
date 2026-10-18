@@ -139,19 +139,10 @@
       overflow: hidden;
     }
     .hero-copy { padding: 30px 20px 38px; align-self: center; position: relative; z-index: 2; }
-    .hero-estd {
-      text-align: center;
-      font-size: 11px;
-      letter-spacing: 4px;
-      color: #b76e79;
-      font-weight: 600;
-      margin: -16px 0 20px;
-      text-transform: uppercase;
-    }
     .hero-logo-wrap {
       position: relative;
       width: clamp(86px, 22vw, 112px);
-      margin: 0 auto 24px;
+      margin: 0 auto 10px;
       border-radius: 50%;
       perspective: 700px;
     }
@@ -702,4 +693,17 @@
       .reveal-ready .product.reveal-card { opacity: 1; transform: none; transition: none; }
       .hero-logo-ring, .hero-logo-text, .hero-logo-wrap::after { animation: none; }
     }
-  
+
+/* ESTD 2025 below hero logo - centered, tight gap, all screens */
+.hero-copy .hero-estd {
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: #e8a0b4;
+  font-weight: 600;
+  margin: 6px 0 18px;
+  padding: 0;
+  text-transform: uppercase;
+}
