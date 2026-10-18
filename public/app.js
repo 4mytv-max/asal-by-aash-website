@@ -557,15 +557,23 @@
       '<label>Fabric photo</label><div class="admin-img-slot"><img src="' + esc(row.fabric_image_url) + '" />' +
       '<input type="file" accept="image/*" data-upload="fabric" /></div>';
     row.model_names.forEach(function (mn, i) {
-      html += '<label>Model ' + (i + 1) + ' name</label>' +
-        '<input type="text" data-f="model_name_' + i + '" value="' + esc(mn || '') + '" />' +
-        '<label>Model ' + (i + 1) + ' price (optional)</label>' +
-        '<input type="text" data-f="model_price_' + i + '" value="' + esc(row.model_prices[i] || '') + '" placeholder="Leave blank to hide" />' +
-        '<div class="admin-img-slot"><img src="' + esc(row.model_image_urls[i] || '') + '" />' +
-        '<input type="file" accept="image/*" data-upload="model_' + i + '" /></div>';
+      html += modelSlotHTML(i, mn, row.model_prices[i], row.model_image_urls[i]);
     });
+    html += '<button type="button" class="admin-add-model-btn" id="add-model-slot-btn">+ Add Model Photo</button>';
     html += '</div>';
     return html;
+  }
+
+  function modelSlotHTML(i, name, price, imgUrl) {
+    return '<div class="admin-model-slot" data-slot="' + i + '">' +
+      '<label>Model ' + (i + 1) + ' name</label>' +
+      '<input type="text" data-f="model_name_' + i + '" value="' + esc(name || '') + '" />' +
+      '<label>Model ' + (i + 1) + ' price (optional)</label>' +
+      '<input type="text" data-f="model_price_' + i + '" value="' + esc(price || '') + '" placeholder="Leave blank to hide" />' +
+      '<div class="admin-img-slot"><img src="' + esc(imgUrl || '') + '" />' +
+      '<input type="file" accept="image/*" data-upload="model_' + i + '" /></div>' +
+      (i >= 4 ? '<button type="button" class="admin-remove-model-btn" data-remove-slot="' + i + '">Remove</button>' : '') +
+      '</div>';
   }
 
   function openRowEditModal(id) {
@@ -595,6 +603,46 @@
         }).catch(function () { alert('Upload failed'); });
       });
     });
+    // Add Model button
+    var addBtn = document.getElementById('add-model-slot-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        var slots = form.querySelectorAll('.admin-model-slot');
+        var n = slots.length;
+        var tmp = document.createElement('div');
+        tmp.innerHTML = modelSlotHTML(n, '', '', '');
+        var newSlot = tmp.firstChild;
+        addBtn.parentNode.insertBefore(newSlot, addBtn);
+        // Bind upload for new slot
+        var input = newSlot.querySelector('input[type="file"][data-upload]');
+        input.addEventListener('change', function () {
+          var file = input.files[0];
+          if (!file) return;
+          var fd = new FormData();
+          fd.append('image', file);
+          fetch('/api/admin/upload', {
+            method: 'POST',
+            headers: { 'X-Admin-Token': state.adminToken },
+            body: fd,
+          }).then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.url) {
+              input.closest('.admin-img-slot').querySelector('img').src = d.url;
+              input.closest('.admin-img-slot').dataset.newUrl = d.url;
+            }
+          }).catch(function () { alert('Upload failed'); });
+        });
+        // Bind remove
+        var rmBtn = newSlot.querySelector('[data-remove-slot]');
+        if (rmBtn) rmBtn.addEventListener('click', function () { newSlot.remove(); });
+      });
+    }
+    // Bind remove for existing extra slots
+    form.querySelectorAll('[data-remove-slot]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        btn.closest('.admin-model-slot').remove();
+      });
+    });
     document.getElementById('row-edit-modal').hidden = false;
     document.body.style.overflow = 'hidden';
   }
@@ -615,17 +663,23 @@
     var fabricSlot = form.querySelector('[data-upload="fabric"]').closest('.admin-img-slot');
     if (fabricSlot.dataset.newUrl) body.fabric_image_url = fabricSlot.dataset.newUrl;
 
-    for (var i = 0; i < 4; i++) {
-      body.model_names.push(form.querySelector('[data-f="model_name_' + i + '"]').value);
-      body.model_prices.push(form.querySelector('[data-f="model_price_' + i + '"]').value);
-      var slot = form.querySelector('[data-upload="model_' + i + '"]').closest('.admin-img-slot');
-      body.model_image_urls.push(slot.dataset.newUrl || null);
-    }
+    var modelSlots = form.querySelectorAll('.admin-model-slot');
+    modelSlots.forEach(function (slotEl) {
+      var idx = slotEl.getAttribute('data-slot');
+      var nameEl = form.querySelector('[data-f="model_name_' + idx + '"]');
+      var priceEl = form.querySelector('[data-f="model_price_' + idx + '"]');
+      var upEl = form.querySelector('[data-upload="model_' + idx + '"]');
+      if (!nameEl) return;
+      body.model_names.push(nameEl.value);
+      body.model_prices.push(priceEl ? priceEl.value : '');
+      var imgSlot = upEl ? upEl.closest('.admin-img-slot') : null;
+      body.model_image_urls.push(imgSlot && imgSlot.dataset.newUrl ? imgSlot.dataset.newUrl : null);
+    });
     var existing = state.catalog.find(function (r) { return r.id === editingRowId; });
     if (existing) {
       if (!body.fabric_image_url) body.fabric_image_url = existing.fabric_image_url;
-      for (var j = 0; j < 4; j++) {
-        if (!body.model_image_urls[j]) body.model_image_urls[j] = existing.model_image_urls[j];
+      for (var j = 0; j < body.model_image_urls.length; j++) {
+        if (!body.model_image_urls[j]) body.model_image_urls[j] = existing.model_image_urls[j] || '';
       }
     }
     fetch('/api/admin/catalog/' + editingRowId, {
