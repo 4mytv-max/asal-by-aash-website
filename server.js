@@ -419,8 +419,10 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
       clearTimeout(timer);
     }
     if (!apiRes.ok) {
-      console.error('Gemini API error, status:', apiRes.status);
-      return res.status(502).json({ error: 'AI service error. Please try again in a moment.' });
+      let errBody = '';
+      try { errBody = await apiRes.text(); } catch (e) {}
+      console.error('Gemini API error, status:', apiRes.status, 'body:', errBody.slice(0, 500));
+      return res.status(502).json({ error: 'AI service error (code ' + apiRes.status + '). Please check API key and try again.' });
     }
     const data = await apiRes.json();
     let text = '';
