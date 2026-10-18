@@ -80,14 +80,39 @@
   loginBtn.addEventListener('click', doLogin);
   pwInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
 
-  function uploadImage(file) {
-    var fd = new FormData();
-    fd.append('image', file);
-    return adminFetch('/api/admin/upload', { method: 'POST', body: fd }).then(function (res) {
-      if (requireAuth(res)) throw new Error('auth');
-      if (!res.ok || !res.d.url) throw new Error((res.d && res.d.error) || 'Upload failed');
-      return res.d.url;
+  function uploadImage(file, onProgress) {
+    return new Promise(function (resolve, reject) {
+      if (file.size > 15 * 1024 * 1024) {
+        reject(new Error('Photo is too large (max 15MB). Please use a smaller photo.'));
+        return;
+      }
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/admin/upload');
+      var token = localStorage.getItem('asal_admin_token') || sessionStorage.getItem('asal_admin_token') || '';
+      if (token) xhr.setRequestHeader('X-Admin-Token', token);
+      xhr.upload.onprogress = function (e) {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      xhr.onload = function () {
+        try {
+          var d = JSON.parse(xhr.responseText);
+          if (xhr.status === 401) { requireAuth({ ok: false, status: 401 }); reject(new Error('auth')); return; }
+          if (xhr.status >= 200 && xhr.status < 300 && d.url) resolve(d.url);
+          else reject(new Error((d && d.error) || 'Upload failed (code ' + xhr.status + ')'));
+        } catch (e) { reject(new Error('Upload failed')); }
+      };
+      xhr.onerror = function () { reject(new Error('Upload failed - network error')); };
+      xhr.ontimeout = function () { reject(new Error('Upload timed out')); };
+      xhr.timeout = 120000;
+      var fd = new FormData();
+      fd.append('image', file);
+      xhr.send(fd);
     });
+  }
+  function showUploadProgress(pct) {
+    setStatus(publishStatus, 'Uploading… ' + pct + '%', 'ok');
   }
 
   // Fabric photo: preview + upload immediately
@@ -98,8 +123,8 @@
     fabricPreview.src = URL.createObjectURL(file);
     fabricPreviewWrap.style.display = 'block';
     suggestBtn.disabled = true;
-    setStatus(publishStatus, 'Uploading fabric photo…');
-    uploadImage(file)
+    setStatus(publishStatus, 'Uploading fabric photo… 0%');
+    uploadImage(file, function(pct) { setStatus(publishStatus, 'Uploading fabric photo… ' + pct + '%', 'ok'); })
       .then(function (url) {
         fabricUrl = url;
         suggestBtn.disabled = false;
@@ -266,7 +291,7 @@
     var modelInputs = Array.prototype.slice.call(document.querySelectorAll('.model-photo'));
     var uploads = modelInputs.map(function (input) {
       var file = input.files[0];
-      return file ? uploadImage(file).catch(function () { return ''; }) : Promise.resolve('');
+      return file ? uploadImage(file, showUploadProgress).catch(function (err) { setStatus(publishStatus, 'Upload failed: ' + err.message, 'err'); return ''; }) : Promise.resolve('');
     });
 
     Promise.all(uploads)
