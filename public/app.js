@@ -218,8 +218,6 @@
     var lightboxStage = lightbox.querySelector('.lightbox-stage');
     var lightboxName = document.getElementById('lightbox-name');
     var closeButton = lightbox.querySelector('.lightbox-close');
-    var zoomButton = lightbox.querySelector('.lightbox-zoom');
-    var zoomButtonText = zoomButton.querySelector('span');
     var zoomState = { scale: 1, x: 0, y: 0 };
     var activePointers = {};
     var dragStart = null;
@@ -236,7 +234,6 @@
       var np = ns === 1 ? { x: 0, y: 0 } : clampPan(ns, x, y);
       zoomState.scale = ns; zoomState.x = np.x; zoomState.y = np.y;
       lightboxImage.style.transform = 'translate3d(' + np.x + 'px,' + np.y + 'px,0) scale(' + ns + ')';
-      zoomButtonText.textContent = ns > 1.01 ? 'Fit to screen' : 'Zoom in';
     }
     function openLightbox(src, name) {
       lightboxImage.src = src;
@@ -279,9 +276,6 @@
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
-    });
-    zoomButton.addEventListener('click', function () {
-      applyZoom(zoomState.scale > 1.01 ? 1 : 2, 0, 0);
     });
 
     // Pinch + pan (touch events for reliable mobile pinch)
