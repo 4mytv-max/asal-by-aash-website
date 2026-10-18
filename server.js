@@ -2,6 +2,8 @@ const express = require('express');
 const { DatabaseSync } = require('node:sqlite');
 const multer = require('multer');
 const path = require('path');
+let sharp = null;
+try { sharp = require('sharp'); } catch (e) { console.warn('sharp not available, using original images'); }
 const fs = require('fs');
 const crypto = require('crypto');
 
@@ -392,7 +394,13 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
     } catch (e) {
       return res.status(404).json({ error: 'Image file not found. Please upload again.' });
     }
-    if (buf.length > 6 * 1024 * 1024) {
+    // Resize large images for AI (max 1024px, JPEG)
+    if (sharp && buf.length > 500 * 1024) {
+      try {
+        buf = await sharp(buf).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+      } catch (e) { console.warn('Image resize failed, using original'); }
+    }
+    if (buf.length > 15 * 1024 * 1024) {
       return res.status(400).json({ error: 'Image is too large for AI analysis.' });
     }
     const ext = path.extname(resolved).toLowerCase();
