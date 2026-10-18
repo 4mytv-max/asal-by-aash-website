@@ -156,7 +156,8 @@
           '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 4h6M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg> Delete row</button>' +
           '</div>';
       } else {
-        html += '<p class="collection-note">1 fabric · 4 models</p>';
+        var modelCount = row.model_names.filter(function(m) { return m; }).length;
+        html += '<p class="collection-note">1 fabric · ' + modelCount + ' model' + (modelCount === 1 ? '' : 's') + '</p>';
       }
       html += '</header>' +
         '<div class="products">';
@@ -374,18 +375,12 @@
 
   function initOwner() {
     var link = document.getElementById('owner-link');
-    if (!link) return;
     link.addEventListener('click', function (e) {
-      if (state.adminToken) { e.preventDefault(); enterOwnerMode(); return; }
-      var modal = document.getElementById('admin-login-modal');
-      var pwd = document.getElementById('admin-password');
-      if (modal && pwd) { e.preventDefault(); modal.hidden = false; pwd.focus(); }
+      e.preventDefault();
+      if (state.adminToken) { enterOwnerMode(); return; }
+      document.getElementById('admin-login-modal').hidden = false;
+      document.getElementById('admin-password').focus();
     });
-    if (isOwnerRequested() && !state.adminToken) {
-      var m2 = document.getElementById('admin-login-modal');
-      var p2 = document.getElementById('admin-password');
-      if (m2 && p2) { m2.hidden = false; setTimeout(function(){ p2.focus(); }, 300); }
-    }
     document.getElementById('admin-login-cancel').addEventListener('click', function () {
       document.getElementById('admin-login-modal').hidden = true;
     });
