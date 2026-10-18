@@ -309,6 +309,20 @@
       if (e.touches.length < 2) touchStartDist = 0;
       if (e.touches.length === 0) touchDrag = null;
     });
+    // Reset zoom on screen rotation / resize so full photo is visible
+    var resizeTimer = null;
+    window.addEventListener('orientationchange', function () {
+      if (lightbox.classList.contains('open')) {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () { applyZoom(1, 0, 0); }, 300);
+      }
+    });
+    window.addEventListener('resize', function () {
+      if (lightbox.classList.contains('open') && zoomState.scale <= 1.01) {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () { applyZoom(1, 0, 0); }, 200);
+      }
+    });
     // Mouse drag fallback (desktop)
     lightboxStage.addEventListener('pointerdown', function (e) {
       if (e.pointerType === 'mouse' && zoomState.scale > 1.01) {
