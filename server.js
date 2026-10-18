@@ -301,10 +301,14 @@ const upload = multer({
 const uploadDir = path.join(__dirname, 'public', 'images', 'uploads');
 
 // --- Admin auth (simple token) ---
-const adminTokens = new Set();
+// Deterministic admin token derived from password — survives server restarts
+// (Render free plan restarts wipe in-memory state).
+function adminToken() {
+  return crypto.createHash('sha256').update('asal-admin|' + OWNER_PASSWORD).digest('hex');
+}
 function requireAdmin(req, res, next) {
   const token = req.headers['x-admin-token'];
-  if (token && adminTokens.has(token)) return next();
+  if (token && token === adminToken()) return next();
   res.status(401).json({ error: 'Unauthorized' });
 }
 
@@ -383,9 +387,7 @@ app.post('/api/rating', ah(async (req, res) => {
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body || {};
   if (password === OWNER_PASSWORD) {
-    const token = crypto.randomBytes(24).toString('hex');
-    adminTokens.add(token);
-    res.json({ token });
+    res.json({ token: adminToken() });
   } else {
     res.status(401).json({ error: 'Wrong password' });
   }
