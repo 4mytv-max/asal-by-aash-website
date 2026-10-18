@@ -171,6 +171,33 @@ function seedIfEmpty() {
 }
 seedIfEmpty();
 
+// --- Migration: unlimited model photos + row ordering ---
+// One-time backfill, keyed on models_json IS NULL (idempotent across restarts).
+// Rows that already have models_json are never touched again, so a user-defined
+// sort_order is never clobbered by a later restart.
+{
+  const cols = db.prepare('PRAGMA table_info(fabric_rows)').all().map(c => c.name);
+  if (!cols.includes('sort_order')) db.exec('ALTER TABLE fabric_rows ADD COLUMN sort_order INTEGER DEFAULT 0');
+  if (!cols.includes('models_json')) db.exec('ALTER TABLE fabric_rows ADD COLUMN models_json TEXT');
+  const legacyRows = db.prepare('SELECT * FROM fabric_rows WHERE models_json IS NULL').all();
+  if (legacyRows.length) {
+    const up = db.prepare('UPDATE fabric_rows SET sort_order = ?, models_json = ? WHERE id = ?');
+    db.exec('BEGIN');
+    try {
+      for (const r of legacyRows) {
+        const models = [];
+        for (let i = 1; i <= 4; i++) {
+          const name = r[`model_${i}_name`];
+          if (name) models.push({ name, image_key: r[`model_${i}_image_key`] || '', price: r[`model_${i}_price`] || '' });
+        }
+        up.run(r.id, JSON.stringify(models), r.id); // sort_order = id preserves original id order
+      }
+      db.exec('COMMIT');
+      console.log(`Migrated ${legacyRows.length} fabric row(s) to models_json + sort_order`);
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+}
+
 // --- Middleware ---
 app.set('trust proxy', 1); // Render sits behind a proxy — req.ip gives the real client IP
 app.use(express.json({ limit: '2mb' }));
@@ -220,19 +247,37 @@ function requireAdmin(req, res, next) {
 }
 
 // --- Public API ---
+function rowModels(r) {
+  // Prefer models_json (unlimited models); fall back to legacy model_1..4 columns.
+  let models = [];
+  try {
+    if (r.models_json) {
+      const parsed = JSON.parse(r.models_json);
+      if (Array.isArray(parsed)) models = parsed.filter(m => m && typeof m.name === 'string' && m.name);
+    }
+  } catch (e) { /* fall through to legacy columns */ }
+  if (!models.length) {
+    for (let i = 1; i <= 4; i++) {
+      const name = r[`model_${i}_name`];
+      if (name) models.push({ name, image_key: r[`model_${i}_image_key`] || '', price: r[`model_${i}_price`] || '' });
+    }
+  }
+  return models;
+}
 function rowToJson(r) {
+  const models = rowModels(r);
   return {
     id: r.id,
     fabric_name: r.fabric_name,
     fabric_image_url: r.fabric_image_key,
-    model_names: [r.model_1_name, r.model_2_name, r.model_3_name, r.model_4_name],
-    model_image_urls: [r.model_1_image_key, r.model_2_image_key, r.model_3_image_key, r.model_4_image_key],
-    model_prices: [r.model_1_price || '', r.model_2_price || '', r.model_3_price || '', r.model_4_price || ''],
+    model_names: models.map(m => m.name),
+    model_image_urls: models.map(m => m.image_key || ''),
+    model_prices: models.map(m => m.price || ''),
   };
 }
 
 app.get('/api/catalog', (req, res) => {
-  const rows = db.prepare('SELECT * FROM fabric_rows ORDER BY id ASC').all();
+  const rows = db.prepare('SELECT * FROM fabric_rows ORDER BY sort_order ASC, id ASC').all();
   res.json({ rows: rows.map(rowToJson) });
 });
 
@@ -305,26 +350,42 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 });
 
 app.get('/api/admin/catalog', requireAdmin, (req, res) => {
-  const rows = db.prepare('SELECT * FROM fabric_rows ORDER BY id ASC').all();
+  const rows = db.prepare('SELECT * FROM fabric_rows ORDER BY sort_order ASC, id ASC').all();
   res.json({ rows: rows.map(rowToJson) });
 });
+
+// Build the canonical models array (any length) from the three parallel input arrays.
+function buildModels(namesIn, imgsIn, pricesIn) {
+  const names = Array.isArray(namesIn) && namesIn.length ? namesIn : MODEL_NAMES.slice();
+  const imgs = Array.isArray(imgsIn) ? imgsIn : [];
+  const prices = Array.isArray(pricesIn) ? pricesIn : [];
+  const count = Math.max(names.length, imgs.length, prices.length, 4);
+  const models = [];
+  for (let i = 0; i < count; i++) {
+    const rawName = typeof names[i] === 'string' ? names[i].trim() : '';
+    const name = rawName || (i < MODEL_NAMES.length ? MODEL_NAMES[i] : `Model ${i + 1}`);
+    models.push({ name, image_key: imgs[i] || '', price: prices[i] || '' });
+  }
+  return models;
+}
 
 app.post('/api/admin/catalog', requireAdmin, (req, res) => {
   const { fabric_name, fabric_image_url, model_names, model_image_urls, model_prices } = req.body || {};
   if (!fabric_name) return res.status(400).json({ error: 'fabric_name required' });
-  const names = model_names || MODEL_NAMES;
-  const imgs = model_image_urls || ['', '', '', ''];
-  const prices = model_prices || ['', '', '', ''];
+  const models = buildModels(model_names, model_image_urls, model_prices);
+  const m = (i) => models[i] || { name: MODEL_NAMES[i] || `Model ${i + 1}`, image_key: '', price: '' };
+  const nextOrder = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS mx FROM fabric_rows').get().mx + 1;
   const info = db.prepare(`INSERT INTO fabric_rows
     (fabric_name, fabric_image_key, model_1_name, model_1_image_key, model_1_price,
      model_2_name, model_2_image_key, model_2_price, model_3_name, model_3_image_key, model_3_price,
-     model_4_name, model_4_image_key, model_4_price)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+     model_4_name, model_4_image_key, model_4_price, sort_order, models_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(fabric_name, fabric_image_url || '',
-      names[0] || MODEL_NAMES[0], imgs[0] || '', prices[0] || '',
-      names[1] || MODEL_NAMES[1], imgs[1] || '', prices[1] || '',
-      names[2] || MODEL_NAMES[2], imgs[2] || '', prices[2] || '',
-      names[3] || MODEL_NAMES[3], imgs[3] || '', prices[3] || '');
+      m(0).name, m(0).image_key, m(0).price,
+      m(1).name, m(1).image_key, m(1).price,
+      m(2).name, m(2).image_key, m(2).price,
+      m(3).name, m(3).image_key, m(3).price,
+      nextOrder, JSON.stringify(models));
   const row = db.prepare('SELECT * FROM fabric_rows WHERE id = ?').get(info.lastInsertRowid);
   res.json({ row: rowToJson(row) });
 });
@@ -334,19 +395,47 @@ app.put('/api/admin/catalog/:id', requireAdmin, (req, res) => {
   const { fabric_name, fabric_image_url, model_names, model_image_urls, model_prices } = req.body || {};
   const existing = db.prepare('SELECT * FROM fabric_rows WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  const names = model_names || [existing.model_1_name, existing.model_2_name, existing.model_3_name, existing.model_4_name];
-  const imgs = model_image_urls || [existing.model_1_image_key, existing.model_2_image_key, existing.model_3_image_key, existing.model_4_image_key];
-  const prices = model_prices || [existing.model_1_price, existing.model_2_price, existing.model_3_price, existing.model_4_price];
+  // Fall back to the row's existing full models (never truncate to 4 on a partial edit).
+  const cur = rowModels(existing);
+  const names = Array.isArray(model_names) && model_names.length ? model_names : cur.map(m => m.name);
+  const imgs = Array.isArray(model_image_urls) && model_image_urls.length ? model_image_urls : cur.map(m => m.image_key);
+  const prices = Array.isArray(model_prices) && model_prices.length ? model_prices : cur.map(m => m.price);
+  const models = buildModels(names, imgs, prices);
+  const m = (i) => models[i] || { name: MODEL_NAMES[i] || `Model ${i + 1}`, image_key: '', price: '' };
   db.prepare(`UPDATE fabric_rows SET fabric_name=?, fabric_image_key=?,
     model_1_name=?, model_1_image_key=?, model_1_price=?,
     model_2_name=?, model_2_image_key=?, model_2_price=?,
     model_3_name=?, model_3_image_key=?, model_3_price=?,
-    model_4_name=?, model_4_image_key=?, model_4_price=? WHERE id=?`)
+    model_4_name=?, model_4_image_key=?, model_4_price=?,
+    models_json=? WHERE id=?`)
     .run(fabric_name ?? existing.fabric_name, fabric_image_url ?? existing.fabric_image_key,
-      names[0], imgs[0], prices[0], names[1], imgs[1], prices[1],
-      names[2], imgs[2], prices[2], names[3], imgs[3], prices[3], id);
+      m(0).name, m(0).image_key, m(0).price, m(1).name, m(1).image_key, m(1).price,
+      m(2).name, m(2).image_key, m(2).price, m(3).name, m(3).image_key, m(3).price,
+      JSON.stringify(models), id);
   const row = db.prepare('SELECT * FROM fabric_rows WHERE id = ?').get(id);
   res.json({ row: rowToJson(row) });
+});
+
+app.post('/api/admin/catalog/reorder', requireAdmin, (req, res) => {
+  const { order } = req.body || {};
+  if (!Array.isArray(order) || !order.length)
+    return res.status(400).json({ error: 'order must be a non-empty array of row ids' });
+  const ids = [];
+  const seen = new Set();
+  for (const v of order) {
+    const id = Number(v);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id); ids.push(id);
+  }
+  if (!ids.length) return res.status(400).json({ error: 'no valid row ids in order' });
+  const existingIds = new Set(db.prepare('SELECT id FROM fabric_rows').all().map(r => r.id));
+  const up = db.prepare('UPDATE fabric_rows SET sort_order = ? WHERE id = ?');
+  db.exec('BEGIN');
+  try {
+    ids.forEach((id, idx) => { if (existingIds.has(id)) up.run(idx, id); });
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  res.json({ ok: true });
 });
 
 app.delete('/api/admin/catalog/:id', requireAdmin, (req, res) => {
