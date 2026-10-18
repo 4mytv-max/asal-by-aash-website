@@ -406,7 +406,22 @@ app.post('/api/admin/suggest-name', requireAdmin, async (req, res) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
     let apiRes;
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    // First, discover available models
+    let modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    try {
+      const listRes = await fetch(
+        'https://generativelanguage.googleapis.com/v1beta/models?key=' + encodeURIComponent(GEMINI_API_KEY),
+        { signal: controller.signal }
+      );
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const available = (listData.models || [])
+          .map(m => (m.name || '').replace('models/', ''))
+          .filter(n => n && /flash/i.test(n));
+        if (available.length) modelsToTry = available.slice(0, 3);
+        console.error('Available flash models:', modelsToTry.join(', '));
+      }
+    } catch (e) { console.error('Model list failed, using defaults'); }
     let lastStatus = 0;
     try {
       for (const model of modelsToTry) {
