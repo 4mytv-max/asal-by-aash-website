@@ -311,16 +311,23 @@
     });
     // Reset zoom on screen rotation / resize so full photo is visible
     var resizeTimer = null;
+    function fixLightboxLayout() {
+      // Force browser to recalculate stage and image dimensions
+      lightboxStage.style.display = 'none';
+      void lightboxStage.offsetHeight; // force reflow
+      lightboxStage.style.display = '';
+      applyZoom(1, 0, 0);
+    }
     window.addEventListener('orientationchange', function () {
       if (lightbox.classList.contains('open')) {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(function () { applyZoom(1, 0, 0); }, 300);
+        resizeTimer = setTimeout(fixLightboxLayout, 400);
       }
     });
     window.addEventListener('resize', function () {
-      if (lightbox.classList.contains('open') && zoomState.scale <= 1.01) {
+      if (lightbox.classList.contains('open')) {
         clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(function () { applyZoom(1, 0, 0); }, 200);
+        resizeTimer = setTimeout(fixLightboxLayout, 250);
       }
     });
     // Mouse drag fallback (desktop)
