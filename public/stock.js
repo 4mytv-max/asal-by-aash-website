@@ -385,6 +385,27 @@
       });
   }
 
+  // Restore original fabrics (safety net for accidental deletes)
+  var restoreBtn = document.getElementById('restore-btn');
+  if (restoreBtn) {
+    restoreBtn.addEventListener('click', function () {
+      if (!confirm('Restore the 7 original fabrics? Existing fabrics will be kept.')) return;
+      restoreBtn.disabled = true;
+      restoreBtn.textContent = 'Restoring…';
+      adminFetch('/api/admin/catalog/restore-seed', { method: 'POST' })
+        .then(function (res) {
+          if (res.ok) {
+            setStatus(publishStatus, '✅ Restored ' + (res.d.restored || 0) + ' fabrics!', 'ok');
+            loadStockList();
+          } else {
+            setStatus(publishStatus, 'Restore failed.', 'err');
+          }
+        })
+        .catch(function () { setStatus(publishStatus, 'Restore failed.', 'err'); })
+        .finally(function () { restoreBtn.disabled = false; restoreBtn.textContent = '♻️ Restore Original 7 Fabrics'; });
+    });
+  }
+
   // Init
   if (token) {
     loginGate.hidden = true;
