@@ -235,6 +235,23 @@
       zoomState.scale = ns; zoomState.x = np.x; zoomState.y = np.y;
       lightboxImage.style.transform = 'translate3d(' + np.x + 'px,' + np.y + 'px,0) scale(' + ns + ')';
     }
+    // Zoom keeping the point (stageX, stageY) fixed under the fingers
+    function applyZoomAt(scale, stageX, stageY) {
+      var s1 = zoomState.scale;
+      var s2 = Math.max(1, Math.min(4, scale));
+      if (s1 > 0 && s2 !== s1) {
+        var sw = lightboxStage.clientWidth || 1, sh = lightboxStage.clientHeight || 1;
+        var lx = (stageX - sw / 2 - zoomState.x) / s1;
+        var ly = (stageY - sh / 2 - zoomState.y) / s1;
+        applyZoom(s2, zoomState.x + lx * (s1 - s2), zoomState.y + ly * (s1 - s2));
+      } else {
+        applyZoom(s2, zoomState.x, zoomState.y);
+      }
+    }
+    function stagePoint(clientX, clientY) {
+      var r = lightboxStage.getBoundingClientRect();
+      return { x: clientX - r.left, y: clientY - r.top };
+    }
     var lightboxPushed = false;
     var lightboxClosing = false;
     function openLightbox(src, name) {
@@ -296,9 +313,10 @@
       if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
     });
 
-    // Pinch + pan (touch events for reliable mobile pinch)
+    // Pinch + pan (touch events for reliable mobile pinch), anchored at fingers
     var touchStartDist = 0, touchStartScale = 1;
     var touchDrag = null;
+    var tapX = 0, tapY = 0, tapT = 0, lastTapT = 0;
     lightboxStage.addEventListener('touchstart', function (e) {
       if (e.touches.length === 2) {
         e.preventDefault();
@@ -307,25 +325,53 @@
         touchStartDist = Math.max(1, Math.hypot(dx, dy));
         touchStartScale = zoomState.scale;
         touchDrag = null;
-      } else if (e.touches.length === 1 && zoomState.scale > 1.01) {
-        touchDrag = { x: e.touches[0].clientX - zoomState.x, y: e.touches[0].clientY - zoomState.y };
+        lastTapT = 0;
+      } else if (e.touches.length === 1) {
+        tapX = e.touches[0].clientX; tapY = e.touches[0].clientY; tapT = Date.now();
+        if (zoomState.scale > 1.01) {
+          touchDrag = { x: e.touches[0].clientX - zoomState.x, y: e.touches[0].clientY - zoomState.y };
+        }
       }
     }, { passive: false });
     lightboxStage.addEventListener('touchmove', function (e) {
       if (e.touches.length === 2) {
         e.preventDefault();
-        var dx = e.touches[0].clientX - e.touches[1].clientX;
-        var dy = e.touches[0].clientY - e.touches[1].clientY;
-        var dist = Math.max(1, Math.hypot(dx, dy));
-        applyZoom(touchStartScale * (dist / touchStartDist), zoomState.x, zoomState.y);
+        lastTapT = 0;
+        if (touchStartDist > 0) {
+          var dx = e.touches[0].clientX - e.touches[1].clientX;
+          var dy = e.touches[0].clientY - e.touches[1].clientY;
+          var dist = Math.max(1, Math.hypot(dx, dy));
+          var mp = stagePoint((e.touches[0].clientX + e.touches[1].clientX) / 2,
+                              (e.touches[0].clientY + e.touches[1].clientY) / 2);
+          applyZoomAt(touchStartScale * (dist / touchStartDist), mp.x, mp.y);
+        }
       } else if (e.touches.length === 1 && touchDrag) {
         e.preventDefault();
+        lastTapT = 0;
         applyZoom(zoomState.scale, e.touches[0].clientX - touchDrag.x, e.touches[0].clientY - touchDrag.y);
       }
     }, { passive: false });
     lightboxStage.addEventListener('touchend', function (e) {
       if (e.touches.length < 2) touchStartDist = 0;
-      if (e.touches.length === 0) touchDrag = null;
+      if (e.touches.length === 0) {
+        touchDrag = null;
+        // Double-tap to toggle zoom
+        if (e.changedTouches.length === 1) {
+          var t = e.changedTouches[0];
+          var dt = Date.now() - tapT;
+          var moved = Math.hypot(t.clientX - tapX, t.clientY - tapY);
+          if (dt < 300 && moved < 14) {
+            var now = Date.now();
+            if (now - lastTapT < 350) {
+              var sp = stagePoint(t.clientX, t.clientY);
+              applyZoomAt(zoomState.scale > 1.5 ? 1 : 2.5, sp.x, sp.y);
+              lastTapT = 0;
+            } else {
+              lastTapT = now;
+            }
+          }
+        }
+      }
     });
     // Reset zoom on screen rotation / resize so full photo is visible
     var resizeTimer = null;
