@@ -133,7 +133,7 @@ const SITE_CONTENT_SEED = {
   welcome_message: '✨ Welcome to ASAL by Aash — Custom-stitched comfort wear, made for you ✨',
   trust_strip_text: '✨ FABRIC IN STOCK ✨ Despatch in 7 Days ✨ Pan India Delivery ✨ 100% Pure Cotton ✨ Custom Stitching ✨ One Piece Per Fabric — No More Copies ✨ Unique ✨',
   hero_eyebrow: 'Our fabric, your design',
-  hero_headline: 'Our fabric or Yours\nOur design or Yours',
+  hero_headline: 'Our fabric or Yours\n<em>Our design or Yours</em>',
   hero_body: 'Comfort wear, custom-stitched to your exact measurements.',
   custom_sizing_line: 'No Generic Sizes — Your Size, Your Choice',
   browse_catalog_button: 'Browse WhatsApp catalog',
@@ -214,8 +214,11 @@ async function seedIfEmpty() {
   }
   // 2026-10-19 migration (user): headline "Ours first" — only touches default values
   await db.execute({
-    sql: "UPDATE site_content SET value = ? WHERE key = 'hero_headline' AND value = ?",
-    args: ['Our fabric or Yours\nOur design or Yours', 'Your Fabric or Ours.\nYour Design or Ours.'],
+    sql: "UPDATE site_content SET value = ? WHERE key = 'hero_headline' AND value IN (?, ?, ?)",
+    args: ['Our fabric or Yours\n<em>Our design or Yours</em>',
+           'Your Fabric or Ours.\nYour Design or Ours.',
+           'Our fabric or Yours\nOur design or Yours',
+           'Your Fabric or Ours.\n<em>Your Design or Ours.</em>'],
   });
   await db.execute({
     sql: "UPDATE site_content SET value = REPLACE(value, 'Your Fabric or Ours', 'Our fabric or Yours') WHERE key = 'cta_strip_text'",
