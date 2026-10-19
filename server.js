@@ -4,6 +4,8 @@ const path = require('path');
 
 const fs = require('fs');
 const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -277,7 +279,31 @@ async function initDb() {
 
 // --- Middleware ---
 app.set('trust proxy', 1); // Render sits behind a proxy — req.ip gives the real client IP
+
+// --- Security headers (helmet) ---
+// CSP disabled for now (site uses inline scripts/styles + Google Fonts);
+// all other helmet protections (HSTS, X-Frame-Options, etc.) are active.
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// --- Rate limiting ---
+// Strict limiter for the owner login: blocks brute-force password guessing.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 login attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+});
+// General API limiter: generous, just stops floods.
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use(express.json({ limit: '2mb' }));
+app.use('/api/', apiLimiter);
 
 // Visitor analytics: log page views of the homepage only (no API, no static assets).
 // Privacy: stores only a SHA256 hash (first 16 chars) of the IP, never the raw IP. No cookies.
@@ -395,7 +421,7 @@ app.post('/api/rating', ah(async (req, res) => {
 }));
 
 // --- Admin API ---
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', loginLimiter, (req, res) => {
   const { password } = req.body || {};
   if (password === OWNER_PASSWORD) {
     res.json({ token: adminToken() });
