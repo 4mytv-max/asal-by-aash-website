@@ -133,7 +133,7 @@ const SITE_CONTENT_SEED = {
   welcome_message: '✨ Welcome to ASAL by Aash — Custom-stitched comfort wear, made for you ✨',
   trust_strip_text: '✨ FABRIC IN STOCK ✨ Despatch in 7 Days ✨ Pan India Delivery ✨ 100% Pure Cotton ✨ Custom Stitching ✨ One Piece Per Fabric — No More Copies ✨ Unique ✨',
   hero_eyebrow: 'Our fabric, your design',
-  hero_headline: 'Your Fabric or Ours.\nYour Design or Ours.',
+  hero_headline: 'Our fabric or Yours\nOur design or Yours',
   hero_body: 'Comfort wear, custom-stitched to your exact measurements.',
   custom_sizing_line: 'No Generic Sizes — Your Size, Your Choice',
   browse_catalog_button: 'Browse WhatsApp catalog',
@@ -182,7 +182,7 @@ const SITE_CONTENT_SEED = {
   faq_a4: 'Choose from our fabrics.',
   faq_q5: 'Where do you deliver?',
   faq_a5: 'Pan India delivery.',
-  cta_strip_text: '✨ Ready for custom comfort? ✨ Order on WhatsApp ✨ Your Fabric or Ours ✨',
+  cta_strip_text: '✨ Ready for custom comfort? ✨ Order on WhatsApp ✨ Our fabric or Yours ✨',
   rating_eyebrow: 'Your experience',
   rating_title: 'Rate our website',
   rating_prompt: 'Tap one star to five stars. You can rate once on this device.',
@@ -212,6 +212,14 @@ async function seedIfEmpty() {
     })));
     console.log('Seeded site_content');
   }
+  // 2026-10-19 migration (user): headline "Ours first" — only touches default values
+  await db.execute({
+    sql: "UPDATE site_content SET value = ? WHERE key = 'hero_headline' AND value = ?",
+    args: ['Our fabric or Yours\nOur design or Yours', 'Your Fabric or Ours.\nYour Design or Ours.'],
+  });
+  await db.execute({
+    sql: "UPDATE site_content SET value = REPLACE(value, 'Your Fabric or Ours', 'Our fabric or Yours') WHERE key = 'cta_strip_text'",
+  });
   const rowCount = num((await db.execute('SELECT COUNT(*) AS c FROM fabric_rows')).rows[0].c);
   if (rowCount === 0) {
     await execBatch(CATALOG_SEED.map((r) => {
