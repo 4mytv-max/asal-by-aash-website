@@ -4,8 +4,6 @@ const path = require('path');
 
 const fs = require('fs');
 const crypto = require('crypto');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -279,31 +277,7 @@ async function initDb() {
 
 // --- Middleware ---
 app.set('trust proxy', 1); // Render sits behind a proxy — req.ip gives the real client IP
-
-// --- Security headers (helmet) ---
-// CSP disabled for now (site uses inline scripts/styles + Google Fonts);
-// all other helmet protections (HSTS, X-Frame-Options, etc.) are active.
-app.use(helmet({ contentSecurityPolicy: false }));
-
-// --- Rate limiting ---
-// Strict limiter for the owner login: blocks brute-force password guessing.
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 login attempts per IP per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
-});
-// General API limiter: generous, just stops floods.
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 app.use(express.json({ limit: '2mb' }));
-app.use('/api/', apiLimiter);
 
 // Visitor analytics: log page views of the homepage only (no API, no static assets).
 // Privacy: stores only a SHA256 hash (first 16 chars) of the IP, never the raw IP. No cookies.
@@ -421,7 +395,7 @@ app.post('/api/rating', ah(async (req, res) => {
 }));
 
 // --- Admin API ---
-app.post('/api/admin/login', loginLimiter, (req, res) => {
+app.post('/api/admin/login', (req, res) => {
   const { password } = req.body || {};
   if (password === OWNER_PASSWORD) {
     res.json({ token: adminToken() });
@@ -435,12 +409,24 @@ app.get('/api/admin/stats', requireAdmin, ah(async (req, res) => {
   const istMidnightUtc = Math.floor((now + IST_OFFSET_MS) / 86400000) * 86400000 - IST_OFFSET_MS;
   const thirtyDaysAgo = now - 30 * 86400000;
 
-  const total = num((await db.execute('SELECT COUNT(*) AS c FROM visits')).rows[0].c);
-  const today = num((await db.execute({ sql: 'SELECT COUNT(*) AS c FROM visits WHERE visited_at >= ?', args: [istMidnightUtc] })).rows[0].c);
-  const unique = num((await db.execute('SELECT COUNT(DISTINCT ip_hash) AS c FROM visits')).rows[0].c);
+  // Report human visits only: exclude keep-alive curl pings, crawlers and
+  // link-preview fetchers by user agent. Rows stay in the table untouched;
+  // only these reporting queries filter them out. (User-approved 2026-10-23.)
+  const HUMAN_UA = `user_agent NOT LIKE 'curl/%'
+    AND lower(user_agent) NOT LIKE '%bot%'
+    AND lower(user_agent) NOT LIKE '%spider%'
+    AND lower(user_agent) NOT LIKE '%crawler%'
+    AND user_agent NOT LIKE 'facebookexternalhit%'
+    AND user_agent NOT LIKE 'WhatsApp%'
+    AND user_agent NOT LIKE '%HeadlessChrome%'
+    AND user_agent NOT LIKE 'python-requests%'`;
+
+  const total = num((await db.execute(`SELECT COUNT(*) AS c FROM visits WHERE ${HUMAN_UA}`)).rows[0].c);
+  const today = num((await db.execute({ sql: `SELECT COUNT(*) AS c FROM visits WHERE visited_at >= ? AND ${HUMAN_UA}`, args: [istMidnightUtc] })).rows[0].c);
+  const unique = num((await db.execute(`SELECT COUNT(DISTINCT ip_hash) AS c FROM visits WHERE ${HUMAN_UA}`)).rows[0].c);
   const byDay = (await db.execute({
     sql: `SELECT date(visited_at / 1000, 'unixepoch', '+330 minutes') AS date, COUNT(*) AS count
-      FROM visits WHERE visited_at >= ? GROUP BY date ORDER BY date ASC`,
+      FROM visits WHERE visited_at >= ? AND ${HUMAN_UA} GROUP BY date ORDER BY date ASC`,
     args: [thirtyDaysAgo],
   })).rows.map((r) => ({ date: r.date, count: num(r.count) }));
 
