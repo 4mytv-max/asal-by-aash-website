@@ -280,9 +280,13 @@ app.set('trust proxy', 1); // Render sits behind a proxy — req.ip gives the re
 app.use(express.json({ limit: '2mb' }));
 
 // Visitor analytics: log page views of the homepage only (no API, no static assets).
-// Privacy: stores only a SHA256 hash (first 16 chars) of the IP, never the raw IP. No cookies.
+// Privacy: stores only a SHA256 hash (first 16 chars) of the IP, never the raw IP.
+// Staff browsers (owner / stock manager, marked with an asal_staff cookie at
+// admin login) are skipped so their own visits never inflate visitor stats.
 app.use((req, res, next) => {
   if (req.method === 'GET' && req.path === '/') {
+    const cookie = req.headers.cookie || '';
+    if (/(?:^|;\s*)asal_staff=1(?:;|$)/.test(cookie)) return next();
     try {
       const ip = req.ip || '';
       const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
@@ -317,9 +321,18 @@ const uploadDir = path.join(__dirname, 'public', 'images', 'uploads');
 function adminToken() {
   return crypto.createHash('sha256').update('asal-admin|' + OWNER_PASSWORD).digest('hex');
 }
+// Mark this browser as staff (owner / stock manager) so its homepage visits
+// are excluded from visitor stats. 400 days = the max cookie lifetime Chrome
+// allows; refreshed on login and on every authenticated admin call.
+function markStaff(res) {
+  res.setHeader('Set-Cookie', 'asal_staff=1; Max-Age=34560000; Path=/; SameSite=Lax; HttpOnly');
+}
 function requireAdmin(req, res, next) {
   const token = req.headers['x-admin-token'];
-  if (token && token === adminToken()) return next();
+  if (token && token === adminToken()) {
+    markStaff(res);
+    return next();
+  }
   res.status(401).json({ error: 'Unauthorized' });
 }
 
@@ -398,6 +411,7 @@ app.post('/api/rating', ah(async (req, res) => {
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body || {};
   if (password === OWNER_PASSWORD) {
+    markStaff(res);
     res.json({ token: adminToken() });
   } else {
     res.status(401).json({ error: 'Wrong password' });
