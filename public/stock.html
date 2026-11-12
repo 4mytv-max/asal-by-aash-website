@@ -60,6 +60,11 @@
     .stock-count { font-size: 13px; color: #715d69; margin-bottom: 8px; }
     #login-gate .stock-card { text-align: center; }
     #login-gate input[type="password"] { width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid #e8cfd8; border-radius: 10px; font-size: 16px; margin-bottom: 12px; }
+    .stock-soldout-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: #a1261f; border: 1px solid #e3b3b3; background: #fdf0f0; padding: 6px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+    .stock-soldout-toggle input { width: 17px; height: 17px; accent-color: #c0272d; cursor: pointer; margin: 0; }
+    .stock-row.is-soldout { opacity: .72; }
+    .stock-row.is-soldout .stock-thumb { filter: grayscale(.55); }
+    .stock-soldout-tag { color: #c0272d; font-size: 11px; font-weight: 800; letter-spacing: .05em; border: 1.5px solid #c0272d; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -127,6 +132,6 @@
     </div>
 
   </div>
-  <script src="/stock.js?v=20251018q"></script>
+  <script src="/stock.js?v=20261112a"></script>
 </body>
 </html>
