@@ -415,7 +415,10 @@
       .then(function (res) {
         if (requireAuth(res) || !res.ok) return;
         var rows = res.d.rows || [];
-        stockCount.textContent = rows.length + (rows.length === 1 ? ' fabric' : ' fabrics') + ' in stock';
+        var inStockCount = rows.filter(function (r) { return !r.sold_out; }).length;
+        var soldOutCount = rows.length - inStockCount;
+        stockCount.textContent = inStockCount + (inStockCount === 1 ? ' fabric' : ' fabrics') + ' in stock' +
+          (soldOutCount ? ' · ' + soldOutCount + ' sold out' : '');
         if (!rows.length) {
           stockList.innerHTML = '<p class="stock-count">No fabrics yet.</p>';
           return;
@@ -428,11 +431,12 @@
             if (u) photos += '<img src="' + esc(u) + '" alt="Model ' + (i+1) + '" loading="lazy" title="' + esc((r.model_names||[])[i]||('Model '+(i+1))) + '" />';
           });
           var photoCount = (r.model_image_urls || []).filter(function(u){return u;}).length + (r.fabric_image_url ? 1 : 0);
-          html += '<div class="stock-row" data-row-id="' + r.id + '">' +
+          html += '<div class="stock-row' + (r.sold_out ? ' is-soldout' : '') + '" data-row-id="' + r.id + '">' +
             '<div class="stock-row-main">' +
             (r.fabric_image_url ? '<img class="stock-thumb" src="' + esc(r.fabric_image_url) + '" alt="" loading="lazy" />' : '') +
-            '<span>' + esc(r.fabric_name) + ' <small>(' + photoCount + ' photos)</small></span>' +
+            '<span>' + esc(r.fabric_name) + (r.sold_out ? '<span class="stock-soldout-tag">SOLD OUT</span>' : '') + ' <small>(' + photoCount + ' photos)</small></span>' +
             '<div class="stock-row-actions">' +
+            '<label class="stock-soldout-toggle"><input type="checkbox" data-stock-soldout="' + r.id + '"' + (r.sold_out ? ' checked' : '') + ' /> Stock Out</label>' +
             '<button type="button" class="stock-view-btn" data-stock-view="' + r.id + '">👁️ Photos</button>' +
             '<button type="button" class="stock-edit-btn" data-stock-edit="' + r.id + '">✏️ Edit</button>' +
             '<button type="button" class="stock-move-btn" data-stock-move="' + r.id + '" data-dir="up" title="Move up">⬆️</button>' +
@@ -514,6 +518,36 @@
                 }
               });
             }).catch(function () { btn.disabled = false; });
+          });
+        });
+        // Sold Out toggle
+        stockList.querySelectorAll('[data-stock-soldout]').forEach(function (box) {
+          box.addEventListener('change', function () {
+            var id = box.getAttribute('data-stock-soldout');
+            var row = rows.find(function (x) { return String(x.id) === String(id); });
+            var name = row ? row.fabric_name : '';
+            box.disabled = true;
+            adminFetch('/api/admin/catalog/' + id + '/sold-out', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sold_out: box.checked }),
+            }).then(function (res) {
+              if (requireAuth(res)) return;
+              if (res.ok) {
+                setStatus(publishStatus, box.checked
+                  ? '✅ "' + name + '" is now Sold Out — it shows last on the website and is out of the fabric count.'
+                  : '✅ "' + name + '" is back in stock.', 'ok');
+                loadStockList();
+              } else {
+                box.checked = !box.checked;
+                box.disabled = false;
+                setStatus(publishStatus, 'Could not update Sold Out. Try again.', 'err');
+              }
+            }).catch(function () {
+              box.checked = !box.checked;
+              box.disabled = false;
+              setStatus(publishStatus, 'Could not update Sold Out. Try again.', 'err');
+            });
           });
         });
       })
