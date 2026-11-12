@@ -269,10 +269,19 @@ async function migrateModelsJson() {
   }
 }
 
+async function migrateSoldOut() {
+  const cols = (await db.execute('PRAGMA table_info(fabric_rows)')).rows.map((c) => c.name);
+  if (!cols.includes('sold_out')) {
+    await db.execute('ALTER TABLE fabric_rows ADD COLUMN sold_out INTEGER DEFAULT 0');
+    console.log('Added sold_out column to fabric_rows');
+  }
+}
+
 async function initDb() {
   for (const sql of SCHEMA_STATEMENTS) await db.execute(sql);
   await seedIfEmpty();
   await migrateModelsJson();
+  await migrateSoldOut();
 }
 
 // --- Middleware ---
@@ -366,6 +375,7 @@ function rowToJson(r) {
     model_names: models.map(m => m.name),
     model_image_urls: models.map(m => m.image_key || ''),
     model_prices: models.map(m => m.price || ''),
+    sold_out: !!num(r.sold_out),
   };
 }
 
@@ -570,6 +580,18 @@ app.post('/api/admin/catalog/reorder', requireAdmin, ah(async (req, res) => {
   ids.forEach((id, idx) => { if (existingIds.has(id)) stmts.push({ sql: 'UPDATE fabric_rows SET sort_order = ? WHERE id = ?', args: [idx, id] }); });
   await execBatch(stmts);
   res.json({ ok: true });
+}));
+
+// Mark a whole fabric row sold out / back in stock (Stock Manager tick box).
+// Only the sold_out flag changes — sort_order is never touched, so unticking
+// restores the row to its exact original position on the website.
+app.post('/api/admin/catalog/:id/sold-out', requireAdmin, ah(async (req, res) => {
+  const id = Number(req.params.id);
+  const soldOut = (req.body || {}).sold_out ? 1 : 0;
+  const result = await db.execute({ sql: 'UPDATE fabric_rows SET sold_out = ? WHERE id = ?', args: [soldOut, id] });
+  if (!num(result.rowsAffected)) return res.status(404).json({ error: 'Not found' });
+  const row = (await db.execute({ sql: 'SELECT * FROM fabric_rows WHERE id = ?', args: [id] })).rows[0];
+  res.json({ row: rowToJson(row) });
 }));
 
 app.delete('/api/admin/catalog/:id', requireAdmin, ah(async (req, res) => {
