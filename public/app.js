@@ -127,9 +127,15 @@
 
   function renderCatalog() {
     var c = state.content;
+    // Customers see sold-out rows last; the owner keeps the true saved order
+    // so the move buttons never bake the sold-out position into sort_order.
     var rows = state.catalog;
+    if (!state.isOwner) {
+      rows = rows.filter(function (r) { return !r.sold_out; })
+        .concat(rows.filter(function (r) { return r.sold_out; }));
+    }
     var list = document.getElementById('collection-list');
-    var total = rows.length;
+    var total = rows.filter(function (r) { return !r.sold_out; }).length;
     var labelWidth = Math.max(2, String(total).length);
 
     // Update counts
@@ -139,14 +145,18 @@
     if (btnLabel) btnLabel.textContent = 'Explore ' + total + ' ' + (total === 1 ? 'fabric' : 'fabrics');
 
     var html = '';
-    rows.forEach(function (row, idx) {
-      var countLabel = 'Collection ' + String(idx + 1).padStart(labelWidth, '0') + ' / ' + String(total).padStart(labelWidth, '0');
+    var availIdx = 0;
+    rows.forEach(function (row) {
+      var soldOut = !!row.sold_out;
+      var countLabel = soldOut ? 'Sold out'
+        : 'Collection ' + String(++availIdx).padStart(labelWidth, '0') + ' / ' + String(total).padStart(labelWidth, '0');
+      var stampHTML = soldOut ? '<img class="soldout-stamp" src="/images/soldout-stamp.png" alt="Sold out" />' : '';
       var fabricSlug = slugify(row.fabric_name);
       var isOwner = state.isOwner;
-      html += '<article class="collection' + (isOwner ? ' owner-collection' : '') + '" id="' + esc(fabricSlug) + '" data-row-id="' + row.id + '">' +
+      html += '<article class="collection' + (isOwner ? ' owner-collection' : '') + (soldOut ? ' sold-out' : '') + '" id="' + esc(fabricSlug) + '" data-row-id="' + row.id + '">' +
         '<header class="collection-head"><div><span class="collection-count">' + esc(countLabel) + '</span>' +
         '<h3>' + esc(row.fabric_name) + '</h3>' +
-        (isOwner ? '<p class="collection-sub">Fabric in stock · style ideas shown</p>' : '') +
+        (isOwner ? '<p class="collection-sub">' + (soldOut ? 'Sold out · shown last on the website' : 'Fabric in stock · style ideas shown') + '</p>' : '') +
         '</div>';
       if (isOwner) {
         html += '<div class="collection-owner-actions">' +
@@ -157,6 +167,8 @@
           '<button type="button" class="owner-delete-btn" data-delete-row="' + row.id + '">' +
           '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 4h6M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg> Delete row</button>' +
           '</div>';
+      } else if (soldOut) {
+        html += '<p class="collection-note">Sold out</p>';
       } else {
         var modelCount = row.model_names.filter(function(m) { return m; }).length;
         html += '<p class="collection-note">1 fabric · ' + modelCount + ' model' + (modelCount === 1 ? '' : 's') + '</p>';
@@ -164,18 +176,21 @@
       html += '</header>' +
         '<div class="products">';
 
-      // Fabric card (owner: div, no WhatsApp link)
-      var fabricCardOpen = isOwner
+      // Fabric card (owner or sold out: div, no WhatsApp order link)
+      var fabricCardOpen = (isOwner || soldOut)
         ? '<div class="product product-fabric" data-fabric="' + esc(row.fabric_name) + '">'
         : '<a class="product product-fabric order-link" href="' + esc(waOrderUrl(row.fabric_name, 'Fabric enquiry')) + '"' +
           ' data-fabric="' + esc(row.fabric_name) + '" data-model="Fabric enquiry" target="_blank" rel="noreferrer">';
-      var fabricCardClose = isOwner ? '</div>' : '</a>';
+      var fabricCardClose = (isOwner || soldOut) ? '</div>' : '</a>';
       var fabricCta = isOwner
         ? '<span class="manage-label">Manage in Edit</span>'
-        : '<span>' + esc(c.fabric_order_button || 'Ask about this fabric') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>';
+        : soldOut
+          ? '<span class="soldout-cta">Sold out</span>'
+          : '<span>' + esc(c.fabric_order_button || 'Ask about this fabric') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>';
       html += fabricCardOpen +
         '<div class="product-photo"><img src="' + esc(row.fabric_image_url) + '" alt="' + esc(row.fabric_name) + ' fabric" loading="lazy" />' +
-        '<span class="fabric-label" data-content="fabric_badge">' + esc(c.fabric_badge || 'FABRIC IN STOCK') + '</span></div>' +
+        (soldOut ? '' : '<span class="fabric-label" data-content="fabric_badge">' + esc(c.fabric_badge || 'FABRIC IN STOCK') + '</span>') +
+        stampHTML + '</div>' +
         '<div class="product-copy"><strong>' + esc(row.fabric_name) + '</strong>' + fabricCta + '</div>' + fabricCardClose;
 
       // Model cards
@@ -186,13 +201,15 @@
         var num = String(mi + 1).padStart(2, '0');
         var modelCta = isOwner
           ? '<span class="manage-label">Manage in Edit</span>'
-          : (price ? '<span class="price">₹' + esc(price) + '</span>' : '') +
-            '<span>' + esc(c.order_button || 'Order on WhatsApp') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>';
-        if (isOwner) {
+          : soldOut
+            ? '<span class="soldout-cta">Sold out</span>'
+            : (price ? '<span class="price">₹' + esc(price) + '</span>' : '') +
+              '<span>' + esc(c.order_button || 'Order on WhatsApp') + ' <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></svg></span>';
+        if (isOwner || soldOut) {
           html += '<div class="product" data-fabric="' + esc(row.fabric_name) + '" data-model="' + esc(mname) + '">' +
             '<div class="product-photo">' +
             (mimg ? '<img src="' + esc(mimg) + '" alt="' + esc(mname) + ' in ' + esc(row.fabric_name) + '" loading="lazy" />' : '') +
-            '<span class="product-number">' + num + '</span></div>' +
+            '<span class="product-number">' + num + '</span>' + stampHTML + '</div>' +
             '<div class="product-copy"><strong>' + esc(mname) + '</strong>' + modelCta + '</div></div>';
         } else {
           html += '<a class="product order-link" href="' + esc(waOrderUrl(row.fabric_name, mname)) + '"' +
@@ -409,7 +426,7 @@
     // Photo tap opens zoom only (never WhatsApp) — disabled in owner mode.
     // Catalog DOM is fresh every render, so re-bind these each time.
     if (state.isOwner) return;
-    document.querySelectorAll('.product-photo img').forEach(function (img) {
+    document.querySelectorAll('.product-photo img:not(.soldout-stamp)').forEach(function (img) {
       img.style.cursor = 'zoom-in';
       img.addEventListener('click', function (e) {
         e.preventDefault();
